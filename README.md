@@ -23,18 +23,50 @@ CapCut 드래프트**를 만들어 줍니다. CapCut에서 열면 이미 편집�
 
 ## 설치
 
+**macOS / Linux**
+
+```bash
+git clone -b claude/capcut-automation-tool-x5031c https://github.com/gomtangi123/my.git
+cd my
+./scripts/setup.sh --web
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone -b claude/capcut-automation-tool-x5031c https://github.com/gomtangi123/my.git
+cd my
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Web
+```
+
+스크립트가 파이썬 버전을 확인하고, ffmpeg가 없으면 **물어본 뒤** 설치하고,
+가상환경(`.venv`)을 만들어 의존성을 깔고, 마지막으로 점검까지 합니다.
+`--web`(PowerShell은 `-Web`)을 붙이면 끝나자마자 브라우저까지 열어 줍니다.
+
+다음부터는 가상환경만 켜면 됩니다.
+
+```bash
+source .venv/bin/activate      # Windows: .\.venv\Scripts\Activate.ps1
+capcut-auto web --open
+```
+
+<details>
+<summary>직접 설치하고 싶다면</summary>
+
 ```bash
 pip install -e ".[all]"
 ```
 
-시스템 의존성 두 가지가 필요합니다.
+시스템 의존성은 **ffmpeg 하나**입니다 — 오디오 디코딩과 렌더링에 씁니다.
+(`brew install ffmpeg` / `winget install Gyan.FFmpeg` / `apt install ffmpeg`)
 
-| 무엇 | 왜 | 설치 |
-|---|---|---|
-| **ffmpeg** | 오디오 디코딩, 렌더링 | `brew install ffmpeg` / `winget install Gyan.FFmpeg` / `apt install ffmpeg` |
-| **libmediainfo** | pycapcut이 소재 길이·해상도를 읽음 | `brew install libmediainfo` / `apt install libmediainfo0v5` (Windows는 pip 패키지에 포함) |
+pycapcut이 소재 길이·해상도를 읽는 데 쓰는 libmediainfo는 보통 `pymediainfo`
+휠에 함께 들어 있습니다. `doctor`가 `pycapcut` 줄에 `주의`를 띄울 때만
+따로 설치하세요 (`brew install libmediainfo` / `apt install libmediainfo0v5`).
 
-제대로 깔렸는지 확인:
+</details>
+
+제대로 깔렸는지는 언제든 확인할 수 있습니다.
 
 ```bash
 capcut-auto doctor
