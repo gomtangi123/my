@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "capcut-auto"
+version = "0.1.0"
+description = "무음·버벅임 자동 컷편집 + 자막 + 효과음 + 자료화면을 CapCut 드래프트로 만들어 주는 도구"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+dependencies = [
+    "numpy>=1.24",
+    "pycapcut>=0.0.3",
+]
+
+[project.optional-dependencies]
+# 음성 인식 — 자막과 버벅임 컷에 필요하다. 없으면 무음 컷만 동작한다.
+whisper = ["faster-whisper>=1.0"]
+# YAML 설정 파일을 쓰고 싶을 때
+yaml = ["pyyaml>=6.0"]
+# 한국어 형태소 분석으로 키워드 추출 정확도 올리기 (JVM 필요)
+konlpy = ["konlpy>=0.6"]
+dev = ["pytest>=8", "pillow>=10"]
+all = [
+    "faster-whisper>=1.0",
+    "pyyaml>=6.0",
+    "pytest>=8",
+    "pillow>=10",
+]
+
+[project.scripts]
+capcut-auto = "capcut_auto.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["capcut_auto*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

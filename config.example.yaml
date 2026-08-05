@@ -1,0 +1,142 @@
+# capcut-auto 설정 예시
+#
+#   capcut-auto edit 영상.mp4 -c config.example.yaml --install
+#
+# 모든 항목은 생략 가능하고, 생략하면 아래 적힌 기본값이 쓰인다.
+# JSON으로 저장해도 된다(.json 확장자). YAML을 쓰려면 pip install pyyaml.
+
+# ────────────────────────────────────────────── 무음 컷
+silence:
+  enabled: true
+  # null이면 소음 바닥을 재서 자동으로 잡는다. 숫자를 주면 그 dB로 고정.
+  threshold_db: null
+  # 자동일 때 소음 바닥 위 몇 dB부터 말소리로 볼지. 잔향이 많으면 15~18로 올린다.
+  auto_margin_db: 12.0
+  # 이보다 짧은 무음은 그대로 둔다. 숨 쉬는 간격까지 자르면 숨가빠 보인다.
+  min_silence: 0.35
+  # 말소리 앞뒤로 남길 여유. 0.05~0.12가 무난.
+  keep_padding: 0.08
+  # 컷 후 남는 조각이 이보다 짧으면 통째로 버린다.
+  min_clip: 0.20
+
+# ─────────────────────────────────────────── 버벅임(더듬음) 컷
+disfluency:
+  enabled: true
+  remove_fillers: true    # "음", "어", "그", "이제" …
+  remove_stutters: true   # "그 그 그러니까"
+  remove_retakes: false   # 같은 문장 다시 말하기 — 공격적이라 기본 off
+  language: ko
+  # true면 "그러니까/이제/좀/약간/진짜"처럼 뜻이 있을 수도 있는 말까지 자른다.
+  # 기본 사전에는 거의 언제나 군말인 말(음/어/그/저기/흠)만 들어 있다.
+  aggressive_fillers: false
+  # 사전에 없는 내 입버릇 추가
+  extra_fillers: []       # 예: ["아무튼", "일단"]
+  # 자르지 말 것 — 의미가 있는 경우
+  keep_fillers: []        # 예: ["좀", "약간"]
+  # 길게 끈 "그으~"는 의도된 연출일 수 있으니 이보다 길면 살린다.
+  max_filler_duration: 1.20
+  # true면 앞뒤로 살짝 떠 있는 필러만 자른다(보수적).
+  require_isolation: false
+  # 한 글자 접두사 반복은 위험하다("이 이야기"의 '이'). 2 이상 권장.
+  stutter_min_prefix: 2
+  retake_similarity: 0.75
+
+# ────────────────────────────────────────────── 음성 인식
+transcribe:
+  enabled: true
+  backend: faster-whisper
+  # tiny / base / small / medium / large-v3
+  # 한국어는 large-v3가 확실히 낫다. GPU 없으면 small~medium도 쓸 만.
+  model: large-v3
+  language: ko
+  device: auto        # auto | cpu | cuda
+  compute_type: auto  # auto | int8 | float16
+  vad_filter: true
+  # 고유명사·전문용어를 미리 알려 주면 인식률이 오른다.
+  initial_prompt: null
+
+# ────────────────────────────────────────────────── 자막
+subtitle:
+  enabled: true
+  max_chars: 18   # 세로 숏폼 14~18, 가로 24~30
+  max_lines: 2
+  max_duration: 4.0
+  min_duration: 0.6
+  split_gap: 0.45
+  strip_trailing_period: true
+  font_size: 8.0
+  font_color: [1.0, 1.0, 1.0]
+  position_y: -0.72   # -1(아래) ~ 1(위)
+  stroke: true
+  stroke_color: [0.0, 0.0, 0.0]
+  stroke_width: 0.08
+
+# ────────────────────────────────────────────────── 효과음
+sfx:
+  enabled: true
+  # 내 효과음 폴더. null이면 내장 합성음(whoosh/swoosh/pop/ding/click/thud/riser/boing).
+  # 파일 이름이 곧 태그다: whoosh_transition_01.wav -> {whoosh, transition}
+  library: null
+  volume: 0.35
+  transition: true
+  transition_sound: whoosh
+  # 이보다 조금 잘린 자리에는 전환음을 넣지 않는다(필러 하나 뺀 자리 등).
+  transition_min_gap: 0.35
+  # 이보다 크게 잘렸으면 화제 전환으로 보고 라이저를 깐다.
+  section_gap: 1.50
+  section_sound: riser
+  emphasis: true         # 숫자·강조어·물음표
+  emphasis_sound: ding
+  question_sound: pop
+  number_sound: pop
+  min_interval: 1.00     # 효과음 사이 최소 간격
+  max_per_minute: 18.0   # 밀도 상한 — 넘치면 촌스러워진다
+  rules: []
+  # 예:
+  # rules:
+  #   - { match: "하하|웃음", sound: boing }
+  #   - { match: "실패|망했", sound: thud }
+
+# ──────────────────────────────────── 자료화면 / 이미지 / GIF
+assets:
+  enabled: true
+  # 내 소재 폴더 — API 키 없이 동작한다. 파일 이름과 상위 폴더 이름이 태그.
+  #   broll/도시/서울_야경.mp4 -> {도시, 서울, 야경}
+  local_folder: null
+  # 온라인 제공자. 비워 두면 같은 이름의 환경변수를 읽는다.
+  #   PEXELS_API_KEY / PIXABAY_API_KEY / GIPHY_API_KEY / TENOR_API_KEY
+  pexels_api_key: null
+  pixabay_api_key: null
+  giphy_api_key: null
+  tenor_api_key: null
+  # 우선순위. video = 자료화면(B-roll)
+  prefer: [video, image]
+  gif_for_reactions: true
+  min_duration: 1.80
+  max_duration: 4.50
+  min_gap: 2.50
+  max_per_minute: 8.0
+  min_score: 0.55
+  broll_scale: 1.0     # 자료화면은 화면을 꽉 채운다
+  image_scale: 0.62    # 이미지는 띄워서 PIP
+  gif_scale: 0.42
+  overlay_position_y: 0.22
+  orientation: ""      # landscape | portrait | "" (Pexels 전용)
+  # 한국어→영어 검색어 매핑 추가분. 내 채널 주제어를 넣어 두면 적중률이 오른다.
+  query_map: {}
+  # query_map:
+  #   백엔드: backend server
+  #   구독자: audience subscribers
+
+# ────────────────────────────────────────────────── 출력
+output:
+  fps: 30.0
+  width: 0    # 0이면 원본 해상도
+  height: 0
+  project_name: ""
+  # ffmpeg 직접 렌더링(--render) 옵션
+  video_codec: libx264
+  audio_codec: aac
+  crf: 18
+  preset: medium
+  burn_subtitles: false
