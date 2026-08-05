@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>capcut-auto</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ctext y=%2726%27 font-size=%2726%27%3E%E2%9C%82%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #16181d;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --accent: #2563eb;
+    --accent-ink: #ffffff;
+    --ok: #15803d;
+    --warn: #b45309;
+    --err: #b91c1c;
+    --silence: #94a3b8;
+    --filler: #f59e0b;
+    --stutter: #ec4899;
+    --retake: #8b5cf6;
+    --keep: #2563eb;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115; --panel: #171a21; --ink: #e8eaed; --muted: #9aa2af;
+      --line: #262b34; --accent: #3b82f6; --ok: #4ade80; --warn: #fbbf24;
+      --err: #f87171; --silence: #4b5563;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.6 system-ui, -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .sub { color: var(--muted); font-size: 13.5px; margin: 0 0 22px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 18px; margin-bottom: 16px;
+  }
+  .drop {
+    border: 2px dashed var(--line); border-radius: var(--radius);
+    padding: 40px 20px; text-align: center; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+  .drop strong { display: block; font-size: 16px; margin-bottom: 4px; }
+  .drop span { color: var(--muted); font-size: 13px; }
+  .picked { display: flex; align-items: center; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .pill { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent);
+          padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 600; }
+
+  .opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px 18px; }
+  label.check { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
+  label.check input { margin-top: 4px; flex: none; }
+  label.check b { font-weight: 600; display: block; }
+  label.check em { font-style: normal; color: var(--muted); font-size: 12.5px; }
+
+  details.adv { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
+  details.adv summary { cursor: pointer; color: var(--muted); font-size: 13.5px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 14px; }
+  .field label { display: block; font-size: 12.5px; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field select {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line);
+    border-radius: 7px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px;
+  }
+
+  button {
+    font: inherit; font-weight: 600; border: 0; border-radius: 8px;
+    padding: 10px 18px; cursor: pointer; background: var(--accent); color: var(--accent-ink);
+  }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+
+  .bar { height: 6px; background: var(--line); border-radius: 999px; overflow: hidden; margin: 10px 0; }
+  .bar > i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .bar.indet > i { width: 35%; animation: slide 1.1s ease-in-out infinite; }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+
+  .log {
+    font: 12.5px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; max-height: 240px; overflow-y: auto; white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .stat { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; letter-spacing: -0.02em; }
+  .stat span { color: var(--muted); font-size: 12px; }
+
+  .tl { display: flex; height: 26px; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+  .tl > i { display: block; height: 100%; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; }
+  td.t { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+  .tag { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+  .scroll { max-height: 300px; overflow-y: auto; }
+  video { width: 100%; border-radius: 8px; background: #000; }
+  .dl { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .dl a {
+    text-decoration: none; color: var(--accent); border: 1px solid var(--line);
+    padding: 8px 14px; border-radius: 8px; font-size: 14px; font-weight: 600;
+  }
+  .note { font-size: 13px; padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
+  .note.warn { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn); }
+  .note.err { background: color-mix(in srgb, var(--err) 12%, transparent); color: var(--err); }
+  .note.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+  .path { font: 12.5px ui-monospace, Menlo, monospace; color: var(--muted); word-break: break-all; }
+  .hide { display: none !important; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tabs button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 5px 12px; font-size: 13.5px; }
+  .tabs button.on { color: var(--ink); border-color: var(--line); background: var(--bg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>capcut-auto</h1>
+  <p class="sub">영상을 올리면 무음·버벅임을 잘라내고 자막·효과음·자료화면을 붙인 CapCut 드래프트를 만듭니다.</p>
+
+  <div id="env"></div>
+
+  <!-- 1. 입력 -->
+  <div class="card">
+    <div id="drop" class="drop">
+      <strong>영상을 여기에 끌어다 놓기</strong>
+      <span>또는 클릭해서 고르기 — mp4, mov, mkv, webm, m4a…</span>
+    </div>
+    <input id="file" type="file" accept="video/*,audio/*" class="hide">
+  </div>
+
+  <!-- 2. 옵션 -->
+  <div class="card">
+    <h2>무엇을 자동으로 할까요</h2>
+    <div class="opts">
+      <label class="check"><input type="checkbox" id="o_silence" checked>
+        <span><b>무음 컷</b><em>말이 없는 구간을 잘라냅니다</em></span></label>
+      <label class="check"><input type="checkbox" id="o_disfluency" checked>
+        <span><b>버벅임 컷</b><em>"음·어·그", 더듬은 부분</em></span></label>
+      <label class="check"><input type="checkbox" id="o_subtitles" checked>
+        <span><b>자막</b><em>컷에 맞춰 자동 싱크</em></span></label>
+      <label class="check"><input type="checkbox" id="o_sfx" checked>
+        <span><b>효과음</b><em>전환·강조 지점에 자동 배치</em></span></label>
+      <label class="check"><input type="checkbox" id="o_assets" checked>
+        <span><b>자료화면 · 이미지</b><em>키워드로 찾아 얹기</em></span></label>
+      <label class="check"><input type="checkbox" id="o_preview" checked>
+        <span><b>미리보기 영상</b><em>결과를 바로 재생 (시간이 걸립니다)</em></span></label>
+    </div>
+
+    <details class="adv">
+      <summary>세부 설정</summary>
+      <div class="grid">
+        <div class="field"><label>Whisper 모델</label>
+          <select id="o_model">
+            <option value="large-v3">large-v3 (정확, 느림)</option>
+            <option value="medium">medium</option>
+            <option value="small" selected>small (빠름)</option>
+            <option value="base">base</option>
+          </select></div>
+        <div class="field"><label>언어</label>
+          <select id="o_language">
+            <option value="ko" selected>한국어</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+          </select></div>
+        <div class="field"><label>최소 무음 길이 (초)</label>
+          <input id="o_min_silence" type="number" step="0.05" min="0.1" value="0.35"></div>
+        <div class="field"><label>말소리 여유 (초)</label>
+          <input id="o_padding" type="number" step="0.01" min="0" value="0.08"></div>
+        <div class="field"><label>자막 한 줄 글자 수</label>
+          <input id="o_max_chars" type="number" min="6" max="60" value="18"></div>
+        <div class="field"><label>효과음 볼륨</label>
+          <input id="o_sfx_volume" type="number" step="0.05" min="0" max="1" value="0.35"></div>
+        <div class="field"><label>분당 효과음 개수</label>
+          <input id="o_sfx_per_minute" type="number" min="0" max="60" value="18"></div>
+        <div class="field"><label>분당 자료화면 개수</label>
+          <input id="o_assets_per_minute" type="number" min="0" max="40" value="8"></div>
+        <div class="field"><label>자료화면 우선순위</label>
+          <select id="o_prefer">
+            <option value="video" selected>자료화면(영상) 우선</option>
+            <option value="image">이미지 우선</option>
+            <option value="gif">GIF 우선</option>
+          </select></div>
+        <div class="field"><label>내 소재 폴더 (선택)</label>
+          <input id="o_assets_folder" type="text" placeholder="/Users/me/broll"></div>
+        <div class="field"><label>내 효과음 폴더 (선택)</label>
+          <input id="o_sfx_library" type="text" placeholder="/Users/me/sfx"></div>
+      </div>
+      <div class="opts" style="margin-top:14px">
+        <label class="check"><input type="checkbox" id="o_aggressive">
+          <span><b>공격적 간투사 제거</b><em>"그러니까·이제·좀·약간"까지</em></span></label>
+        <label class="check"><input type="checkbox" id="o_retakes">
+          <span><b>재촬영 제거</b><em>같은 문장을 다시 말하면 앞의 것 버림</em></span></label>
+        <label class="check"><input type="checkbox" id="o_vertical">
+          <span><b>세로 숏폼</b><em>1080×1920으로 출력</em></span></label>
+        <label class="check"><input type="checkbox" id="o_burn" checked>
+          <span><b>미리보기에 자막 태우기</b><em>드래프트 자막과는 별개</em></span></label>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button id="go" disabled>편집 시작</button>
+      <span id="hint" class="path"></span>
+    </div>
+  </div>
+
+  <!-- 3. 진행 -->
+  <div class="card hide" id="progress">
+    <h2 id="phase">준비 중…</h2>
+    <div class="bar" id="bar"><i></i></div>
+    <div class="log" id="log"></div>
+  </div>
+
+  <!-- 4. 결과 -->
+  <div class="card hide" id="result">
+    <h2>편집 결과</h2>
+    <div class="stats" id="stats"></div>
+
+    <div style="margin-bottom:18px">
+      <div class="tl" id="timeline"></div>
+      <div class="legend">
+        <span><i style="background:var(--keep)"></i>남김</span>
+        <span><i style="background:var(--silence)"></i>무음</span>
+        <span><i style="background:var(--filler)"></i>간투사</span>
+        <span><i style="background:var(--stutter)"></i>더듬음</span>
+        <span><i style="background:var(--retake)"></i>재촬영</span>
+      </div>
+    </div>
+
+    <div id="previewBox" class="hide" style="margin-bottom:18px">
+      <video id="preview" controls preload="metadata"></video>
+    </div>
+
+    <div class="tabs" id="tabs"></div>
+    <div class="scroll" id="tabBody"></div>
+
+    <div class="dl" id="downloads"></div>
+
+    <div id="installBox" style="margin-top:18px"></div>
+    <p class="path" id="draftPath"></p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const REASON = { silence: "무음", filler: "간투사", stutter: "더듬음", retake: "재촬영", manual: "수동" };
+const COLOR = { silence: "var(--silence)", filler: "var(--filler)", stutter: "var(--stutter)",
+                retake: "var(--retake)", manual: "var(--muted)" };
+
+let picked = null, env = null, current = null;
+
+/* ---------------------------------------------------------------- 환경 */
+async function loadEnv() {
+  try { env = await (await fetch("/api/config")).json(); }
+  catch { return; }
+  const notes = [];
+  if (!env.ffmpeg)
+    notes.push(`<div class="note err"><b>ffmpeg가 없습니다.</b> 설치해야 편집이 됩니다 —
+      macOS <code>brew install ffmpeg</code> · Windows <code>winget install Gyan.FFmpeg</code></div>`);
+  if (!env.whisper)
+    notes.push(`<div class="note warn"><b>faster-whisper가 없습니다.</b>
+      자막과 버벅임 컷은 건너뛰고 무음 컷만 돌아갑니다 — <code>pip install faster-whisper</code></div>`);
+  if (!env.providers.length)
+    notes.push(`<div class="note warn"><b>자료화면 소스가 없습니다.</b>
+      아래 "내 소재 폴더"를 지정하거나 <code>PEXELS_API_KEY</code> 같은 환경변수를 설정하세요.
+      없으면 자료화면 단계만 건너뜁니다.</div>`);
+  else
+    notes.push(`<div class="note ok">자료화면 소스: ${env.providers.join(", ")}</div>`);
+  $("env").innerHTML = notes.join("");
+}
+
+/* ---------------------------------------------------------------- 입력 */
+const drop = $("drop"), fileInput = $("file");
+drop.onclick = () => fileInput.click();
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  if (e.dataTransfer.files.length) choose(e.dataTransfer.files[0]);
+};
+fileInput.onchange = () => { if (fileInput.files.length) choose(fileInput.files[0]); };
+
+function choose(file) {
+  picked = file;
+  const mb = (file.size / 1048576).toFixed(1);
+  drop.innerHTML = `<div class="picked"><span class="pill">${escapeHtml(file.name)}</span>
+    <span>${mb} MB</span></div><span>다른 파일을 고르려면 다시 클릭</span>`;
+  $("go").disabled = false;
+}
+
+/* ---------------------------------------------------------------- 실행 */
+function options() {
+  const num = (id) => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
+  return {
+    silence: $("o_silence").checked,
+    disfluency: $("o_disfluency").checked,
+    subtitles: $("o_subtitles").checked,
+    sfx: $("o_sfx").checked,
+    assets: $("o_assets").checked,
+    preview: $("o_preview").checked,
+    model: $("o_model").value,
+    language: $("o_language").value,
+    min_silence: num("o_min_silence"),
+    padding: num("o_padding"),
+    max_chars: num("o_max_chars"),
+    sfx_volume: num("o_sfx_volume"),
+    sfx_per_minute: num("o_sfx_per_minute"),
+    assets_per_minute: num("o_assets_per_minute"),
+    prefer: $("o_prefer").value,
+    assets_folder: $("o_assets_folder").value.trim(),
+    sfx_library: $("o_sfx_library").value.trim(),
+    aggressive_fillers: $("o_aggressive").checked,
+    retakes: $("o_retakes").checked,
+    vertical: $("o_vertical").checked,
+    burn_subtitles: $("o_burn").checked,
+  };
+}
+
+$("go").onclick = async () => {
+  if (!picked) return;
+  $("go").disabled = true;
+  $("result").classList.add("hide");
+  $("progress").classList.remove("hide");
+  $("log").textContent = "";
+  setPhase("업로드 중…", 0);
+
+  let uploadId;
+  try { uploadId = await upload(picked); }
+  catch (err) { fail("업로드 실패: " + err.message); return; }
+
+  setPhase("편집 준비 중…", null);
+  let jobId;
+  try {
+    const res = await fetch("/api/jobs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ upload_id: uploadId, options: options() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    jobId = data.job_id;
+  } catch (err) { fail("시작 실패: " + err.message); return; }
+
+  listen(jobId);
+};
+
+function upload(file) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", "/api/uploads?name=" + encodeURIComponent(file.name));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) setPhase("업로드 중…", e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data.upload_id);
+      else reject(new Error(data.error || xhr.statusText));
+    };
+    xhr.onerror = () => reject(new Error("연결 실패"));
+    xhr.send(file);
+  });
+}
+
+function listen(jobId) {
+  const source = new EventSource(`/api/jobs/${jobId}/events`);
+  source.onmessage = (e) => {
+    const event = JSON.parse(e.data);
+    if (event.type === "log") {
+      addLog(event.message);
+      setPhase(event.message, null);
+    } else if (event.type === "state" && event.state === "running") {
+      setPhase("편집 중…", null);
+    } else if (event.type === "result") {
+      source.close();
+      $("go").disabled = false;
+      if (event.job.state === "error") fail(event.job.error || "알 수 없는 오류");
+      else { setPhase("완료", 1); show(event.job); }
+    } else if (event.type === "error") {
+      source.close(); fail(event.error);
+    }
+  };
+  source.onerror = () => { source.close(); $("go").disabled = false; };
+}
+
+function setPhase(text, ratio) {
+  $("phase").textContent = text;
+  const bar = $("bar");
+  if (ratio === null) { bar.classList.add("indet"); bar.firstElementChild.style.width = "35%"; }
+  else { bar.classList.remove("indet"); bar.firstElementChild.style.width = (ratio * 100) + "%"; }
+}
+function addLog(line) {
+  const log = $("log");
+  log.textContent += line + "\n";
+  log.scrollTop = log.scrollHeight;
+}
+function fail(message) {
+  setPhase("실패", 0);
+  addLog(message);
+  $("go").disabled = false;
+  $("phase").style.color = "var(--err)";
+}
+
+/* ---------------------------------------------------------------- 결과 */
+function show(job) {
+  current = job;
+  $("phase").style.color = "";
+  $("result").classList.remove("hide");
+  const s = job.summary, plan = job.plan;
+
+  $("stats").innerHTML = [
+    stat(fmt(s.source_duration), "원본"),
+    stat(fmt(s.output_duration), "결과"),
+    stat((s.removed_ratio * 100).toFixed(1) + "%", "제거"),
+    stat(s.clip_count, "클립"),
+    stat(s.subtitle_count, "자막"),
+    stat(s.sfx_count, "효과음"),
+    stat(s.overlay_count, "자료화면"),
+  ].join("");
+
+  drawTimeline(plan, s.source_duration);
+
+  const preview = job.downloads.includes("preview");
+  $("previewBox").classList.toggle("hide", !preview);
+  if (preview) $("preview").src = `/api/jobs/${job.id}/file/preview`;
+
+  buildTabs(plan);
+
+  const labels = { preview: "미리보기 영상", srt: "자막 (.srt)", draft: "CapCut 드래프트 (.zip)",
+                   plan: "편집안 (.json)", credits: "소재 출처 (.md)" };
+  $("downloads").innerHTML = job.downloads
+    .map((k) => `<a href="/api/jobs/${job.id}/file/${k}?download=1" download>⬇ ${labels[k] || k}</a>`)
+    .join("");
+
+  $("draftPath").textContent = job.draft_path ? "드래프트 위치: " + job.draft_path : "";
+  renderInstall(job);
+  $("result").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function stat(value, label) {
+  return `<div class="stat"><b>${value}</b><span>${label}</span></div>`;
+}
+
+function drawTimeline(plan, total) {
+  if (!total) return;
+  const marks = [];
+  for (const cut of plan.cuts) marks.push({ start: cut.start, end: cut.end, reason: cut.reason });
+  marks.sort((a, b) => a.start - b.start);
+
+  let html = "", cursor = 0;
+  for (const m of marks) {
+    if (m.start > cursor)
+      html += `<i style="width:${((m.start - cursor) / total) * 100}%;background:var(--keep)"></i>`;
+    const width = ((Math.min(m.end, total) - Math.max(m.start, cursor)) / total) * 100;
+    if (width > 0)
+      html += `<i style="width:${width}%;background:${COLOR[m.reason] || "var(--muted)"}"
+                  title="${REASON[m.reason] || m.reason} ${m.start.toFixed(2)}s"></i>`;
+    cursor = Math.max(cursor, m.end);
+  }
+  if (cursor < total)
+    html += `<i style="width:${((total - cursor) / total) * 100}%;background:var(--keep)"></i>`;
+  $("timeline").innerHTML = html;
+}
+
+function buildTabs(plan) {
+  const tabs = [
+    ["컷 " + plan.cuts.length, () => table(
+      ["시각", "길이", "이유", "내용"],
+      plan.cuts.map((c) => [
+        `${clock(c.start)}–${clock(c.end)}`, c.duration.toFixed(2) + "초",
+        `<span class="tag" style="background:color-mix(in srgb,${COLOR[c.reason]} 22%,transparent)">${REASON[c.reason] || c.reason}</span>`,
+        escapeHtml(c.detail || ""),
+      ]))],
+    ["자막 " + plan.subtitles.length, () => table(
+      ["시각", "내용"],
+      plan.subtitles.map((x) => [`${clock(x.start)}–${clock(x.end)}`,
+        escapeHtml(x.text).replace(/\n/g, "<br>")]))],
+    ["효과음 " + plan.sfx.length, () => table(
+      ["시각", "소리", "이유", "내용"],
+      plan.sfx.map((x) => [clock(x.time), escapeHtml(x.sound),
+        escapeHtml(x.reason), escapeHtml(x.detail || "")]))],
+    ["자료화면 " + plan.overlays.length, () => table(
+      ["시각", "종류", "키워드", "출처"],
+      plan.overlays.map((x) => [`${clock(x.start)}–${clock(x.end)}`, x.asset.kind,
+        escapeHtml(x.keyword), escapeHtml(x.asset.credit || x.asset.source)]))],
+  ];
+  $("tabs").innerHTML = tabs.map((t, i) =>
+    `<button data-i="${i}" class="${i === 0 ? "on" : ""}">${t[0]}</button>`).join("");
+  const render = (i) => {
+    $("tabBody").innerHTML = tabs[i][1]();
+    for (const b of $("tabs").children) b.classList.toggle("on", +b.dataset.i === i);
+  };
+  $("tabs").onclick = (e) => { if (e.target.dataset.i) render(+e.target.dataset.i); };
+  render(0);
+}
+
+function table(headers, rows) {
+  if (!rows.length) return `<p class="path">없음</p>`;
+  return `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map((r) => `<tr>${r.map((cell, i) =>
+      `<td class="${i === 0 ? "t" : ""}">${cell}</td>`).join("")}</tr>`).join("") +
+    `</tbody></table>`;
+}
+
+function renderInstall(job) {
+  const box = $("installBox");
+  if (job.installed_path) {
+    box.innerHTML = `<div class="note ok">CapCut에 설치했습니다 — CapCut을 껐다 켜면 목록에 보입니다.
+      <br><span class="path">${escapeHtml(job.installed_path)}</span></div>`;
+    return;
+  }
+  if (!env || !env.capcut_drafts_dir) {
+    box.innerHTML = `<div class="note warn">이 PC에서 CapCut 드래프트 폴더를 찾지 못했습니다.
+      위의 .zip을 받아 CapCut 드래프트 폴더에 풀어 넣으세요.</div>`;
+    return;
+  }
+  box.innerHTML = `<button id="install" class="ghost">CapCut에 설치</button>
+    <p class="path">${escapeHtml(env.capcut_drafts_dir)}</p>`;
+  $("install").onclick = async () => {
+    $("install").disabled = true;
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/install`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      job.installed_path = data.installed_path;
+      renderInstall(job);
+    } catch (err) {
+      box.innerHTML += `<div class="note err">설치 실패: ${escapeHtml(err.message)}</div>`;
+    }
+  };
+}
+
+/* ---------------------------------------------------------------- 유틸 */
+function fmt(seconds) {
+  return seconds >= 60
+    ? `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`
+    : seconds.toFixed(1) + "초";
+}
+function clock(seconds) {
+  const m = Math.floor(seconds / 60), s = (seconds % 60).toFixed(1).padStart(4, "0");
+  return `${m}:${s}`;
+}
+function escapeHtml(text) {
+  return String(text ?? "").replace(/[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+loadEnv();
+</script>
+</body>
+</html>

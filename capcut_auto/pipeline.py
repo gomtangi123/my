@@ -55,7 +55,8 @@ def analyze(
             f"— {len(result.silence)}개 구간, 총 {sum(s.duration for s in result.silence):.1f}초"
         )
         cuts.extend(
-            Cut(span.clamp(0.0, duration), "silence", f"{span.duration:.2f}초")
+            # detail은 비워 둔다 — 길이는 Cut.span이 이미 들고 있다
+            Cut(span.clamp(0.0, duration), "silence", "")
             for span in result.silence
             if span.duration > 0
         )

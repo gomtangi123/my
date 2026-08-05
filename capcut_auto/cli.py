@@ -51,6 +51,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "예시:\n"
             f"  {PROG} edit 영상.mp4 --install\n"
             f"  {PROG} edit 영상.mp4 --render 결과.mp4 --burn-subs\n"
+            f"  {PROG} web --open                # 브라우저에서 쓰기\n"
             f"  {PROG} analyze 영상.mp4          # 뭘 자를지만 보기\n"
             f"  {PROG} doctor                    # 설치 상태 점검\n"
         ),
@@ -115,6 +116,20 @@ def _build_parser() -> argparse.ArgumentParser:
     drafts = sub.add_parser("drafts", help="CapCut 드래프트 목록 (템플릿 고를 때)")
     drafts.add_argument("--drafts-dir", type=Path)
     drafts.set_defaults(handler=cmd_drafts, command="drafts")
+
+    web = sub.add_parser("web", help="브라우저에서 쓰는 웹 UI 띄우기")
+    web.add_argument("-p", "--port", type=int, default=8765, help="포트 (기본 8765)")
+    web.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="바인딩 주소. 기본은 이 PC에서만 접속 가능(127.0.0.1).",
+    )
+    web.add_argument(
+        "-o", "--out", type=Path, help="작업 폴더 (기본: ./capcut-out/web)"
+    )
+    web.add_argument("--open", action="store_true", help="브라우저 자동으로 열기")
+    web.add_argument("-v", "--verbose", action="store_true", help="접근 로그 출력")
+    web.set_defaults(handler=cmd_web, command="web")
 
     return parser
 
@@ -479,6 +494,19 @@ def cmd_doctor(_args) -> int:
             print(f"    - {d.name}")
 
     return 0 if ok else 1
+
+
+def cmd_web(args) -> int:
+    from .web.server import serve
+
+    serve(
+        host=args.host,
+        port=args.port,
+        work_root=args.out or Path("capcut-out/web"),
+        open_browser=args.open,
+        verbose=args.verbose,
+    )
+    return 0
 
 
 def cmd_drafts(args) -> int:

@@ -36,6 +36,9 @@ capcut-auto = "capcut_auto.cli:main"
 [tool.setuptools.packages.find]
 include = ["capcut_auto*"]
 
+[tool.setuptools.package-data]
+capcut_auto = ["web/static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

@@ -147,6 +147,7 @@ def render(
     srt_path: Path | None = None,
     work_dir: Path | None = None,
     has_audio: bool = True,
+    show_stats: bool = True,
     progress=None,
 ) -> Path:
     say = progress or (lambda _msg: None)
@@ -164,7 +165,10 @@ def render(
     script_path = work_dir / "filter_graph.txt"
     script_path.write_text(script, encoding="utf-8")
 
-    args = [ffmpeg.require("ffmpeg"), "-v", "error", "-stats", "-y"]
+    args = [ffmpeg.require("ffmpeg"), "-v", "error", "-y"]
+    if show_stats:
+        # 터미널에서는 진행률이 보이는 게 낫고, 웹 UI에서는 서버 콘솔만 더럽힌다.
+        args.insert(3, "-stats")
     args += inputs.args
     args += ["-filter_complex_script", str(script_path), "-map", video_label]
     if audio_label:
@@ -187,7 +191,7 @@ def render(
         f"렌더링: 클립 {len(plan.keeps)}개 / 오버레이 {len(plan.overlays)}개 / "
         f"효과음 {len(plan.sfx)}개 → {out_path.name}"
     )
-    ffmpeg.run(args, capture=False)
+    ffmpeg.run(args, capture=not show_stats)
     return out_path
 
 
