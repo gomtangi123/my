@@ -31,13 +31,18 @@ cd my
 ./scripts/setup.sh --web
 ```
 
-**Windows (PowerShell)**
+**Windows** — cmd / Anaconda Prompt / PowerShell 어디서든
 
-```powershell
+```
 git clone -b claude/capcut-automation-tool-x5031c https://github.com/gomtangi123/my.git
 cd my
-powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1 -Web
+scripts\setup.bat --web
 ```
+
+> Windows에서 `./scripts/setup.sh` 는 동작하지 않습니다. 그건 macOS/Linux용입니다.
+> Anaconda를 쓰신다면 스크립트가 알아서 감지해서 ffmpeg를 conda로 깝니다
+> (관리자 권한이 필요 없습니다). 이미 쓰던 conda 환경에 그대로 설치하려면
+> `scripts\setup.bat --no-venv --web`.
 
 스크립트가 파이썬 버전을 확인하고, ffmpeg가 없으면 **물어본 뒤** 설치하고,
 가상환경(`.venv`)을 만들어 의존성을 깔고, 마지막으로 점검까지 합니다.

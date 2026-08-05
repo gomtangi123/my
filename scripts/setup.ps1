@@ -43,19 +43,26 @@ $hasFfmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue) -and
              (Get-Command ffprobe -ErrorAction SilentlyContinue)
 if ($hasFfmpeg) {
     Write-Host "     ffmpeg 있습니다"
-} else {
-    Write-Warn "     ffmpeg가 없습니다"
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        $answer = Read-Host "     winget으로 지금 설치할까요? [y/N]"
-        if ($answer -match "^[Yy]$") {
-            winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
-            Write-Warn "     설치 후에는 PowerShell을 새로 열어야 PATH가 잡힙니다."
-        } else {
-            Write-Warn "     건너뜁니다. 나중에 'winget install Gyan.FFmpeg' 를 실행하세요."
-        }
+} elseif ($env:CONDA_PREFIX -and (Get-Command conda -ErrorAction SilentlyContinue)) {
+    # conda 환경이면 이쪽이 낫다 — 관리자 권한도, 새 터미널도 필요 없다.
+    Write-Warn "     ffmpeg가 없습니다 (conda 환경 감지됨)"
+    $answer = Read-Host "     conda로 지금 설치할까요? [y/N]"
+    if ($answer -match "^[Yy]$") {
+        conda install -c conda-forge ffmpeg -y
     } else {
-        Write-Fail "     winget이 없습니다. https://ffmpeg.org 에서 직접 받아 PATH에 추가하세요."
+        Write-Warn "     건너뜁니다. 나중에 'conda install -c conda-forge ffmpeg' 를 실행하세요."
     }
+} elseif (Get-Command winget -ErrorAction SilentlyContinue) {
+    Write-Warn "     ffmpeg가 없습니다"
+    $answer = Read-Host "     winget으로 지금 설치할까요? [y/N]"
+    if ($answer -match "^[Yy]$") {
+        winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements
+        Write-Warn "     설치 후에는 터미널을 새로 열어야 PATH가 잡힙니다."
+    } else {
+        Write-Warn "     건너뜁니다. 나중에 'winget install Gyan.FFmpeg' 를 실행하세요."
+    }
+} else {
+    Write-Fail "     ffmpeg가 없습니다. https://ffmpeg.org 에서 받아 PATH에 추가하세요."
 }
 # libmediainfo는 Windows에서 pymediainfo 휠에 들어 있어 따로 설치할 필요가 없다.
 
