@@ -158,9 +158,11 @@
       <b>사진을 한 장 이상 올려야</b> 영상이 만들어집니다.
       「자료화면·이미지」와 「처음부터 끝까지 채우기」는 자동으로 켰습니다.
     </div>
-    <p class="hint">직접 쓸 사진·GIF·영상을 올려두면, 말하는 내용의 키워드와
-      맞는 자리에 알아서 얹어 줍니다. <b>파일 이름이 곧 검색어</b>입니다 —
-      <code>서울_야경.jpg</code>, <code>커피.png</code> 처럼 지어 주세요.</p>
+    <p class="hint"><b>파일 이름 순서대로</b> 화면에 들어갑니다 —
+      <code>1.jpg</code>, <code>2.jpg</code> … <code>20.jpg</code> 처럼 번호를
+      매기면 그 순서 그대로입니다 (<code>10</code>이 <code>2</code>보다 뒤로 갑니다).<br>
+      순서가 상관없다면 <code>서울_야경.jpg</code>, <code>커피.png</code> 처럼
+      내용으로 지어도 됩니다 — 그 경우 <b>말하는 내용과 맞는 자리</b>를 찾아 넣습니다.</p>
     <div id="libDrop" class="drop small">
       <strong>이미지·GIF·영상을 여기에 끌어다 놓기</strong>
       <span>여러 개 한 번에 · 또는 클릭해서 고르기</span>
@@ -373,7 +375,13 @@ libDrop.ondrop = (e) => {
 };
 libInput.onchange = () => addAssets(libInput.files);
 
-async function addAssets(files) {
+function naturalCompare(a, b) {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+async function addAssets(fileList) {
+  // 파일 이름 순서가 곧 등장 순서다. 브라우저가 주는 순서를 믿지 않는다.
+  const files = Array.from(fileList).sort((x, y) => naturalCompare(x.name, y.name));
   for (const file of files) {
     const chip = document.createElement("span");
     chip.textContent = `${file.name} 올리는 중…`;

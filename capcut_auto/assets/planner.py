@@ -19,6 +19,9 @@ from . import cache
 from .models import Asset, AssetRef, Overlay
 from .providers import Provider, ProviderError
 
+# 한 장이 이보다 짧게 스치면 깜빡이는 것처럼 보인다. 막지는 않고 알려만 준다.
+COMFORTABLE_MIN = 1.2
+
 # 이런 말이 나오면 자료화면보다 리액션 GIF가 어울린다.
 REACTION_WORDS = frozenset(
     """
@@ -224,10 +227,19 @@ def _spread_once(
         cursor += duration
 
     covered = sum(o.duration for o in overlays)
-    say(
-        f"소재 {len(overlays)}개를 한 번씩만 사용 — "
-        f"한 개당 평균 {covered / max(len(overlays), 1):.1f}초"
-    )
+    average = covered / max(len(overlays), 1)
+    say(f"소재 {len(overlays)}개를 한 번씩만 사용 — 한 개당 평균 {average:.1f}초")
+
+    if average < COMFORTABLE_MIN and overlays:
+        # 장수에 비해 영상이 짧으면 그림이 깜빡이듯 지나간다. 막지는 않되
+        # 몇 장이 알맞은지는 알려 준다.
+        fits = max(1, int(total / COMFORTABLE_MIN))
+        note = (
+            f"이미지가 많아 한 장이 {average:.1f}초만 보입니다. "
+            f"이 길이({total:.0f}초)에는 {fits}장 정도가 알맞습니다."
+        )
+        skipped.append(note)
+        say(f"  주의: {note}")
     if total - covered > 0.2:
         # 영상 소재가 짧아서 다 채우지 못한 경우
         skipped.append(

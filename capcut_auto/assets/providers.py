@@ -33,6 +33,20 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
 GIF_EXTS = {".gif"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv"}
 _SPLIT_RE = re.compile(r"[^a-z0-9가-힣]+")
+_DIGITS_RE = re.compile(r"(\d+)")
+
+
+def natural_key(text: str) -> list:
+    """사람이 기대하는 순서로 정렬하기 위한 키.
+
+    "2" < "10" 이 되도록 숫자 부분을 정수로 읽는다.
+    그냥 문자열로 정렬하면 1, 10, 11, …, 2, 20 순이 되어 버린다.
+    """
+    return [
+        (1, int(part), "") if part.isdigit() else (0, 0, part.lower())
+        for part in _DIGITS_RE.split(str(text))
+        if part != ""
+    ]
 
 
 class ProviderError(RuntimeError):
@@ -90,7 +104,9 @@ class LocalProvider(Provider):
         if not self.folder.is_dir():
             raise FileNotFoundError(f"소재 폴더가 없습니다: {self.folder}")
         self._tag_overrides = self._load_tag_overrides()
-        for path in sorted(self.folder.rglob("*")):
+
+        found = []
+        for path in self.folder.rglob("*"):
             if not path.is_file():
                 continue
             suffix = path.suffix.lower()
@@ -102,6 +118,13 @@ class LocalProvider(Provider):
                 kind = "video"
             else:
                 continue
+            found.append((self._order_key(path), path, kind))
+
+        # 이름 순서가 곧 등장 순서다. 숫자는 숫자로 읽어야 1,2,…,10,…,20이
+        # 제대로 온다 (그냥 정렬하면 1,10,11,…,2,20이 된다).
+        found.sort(key=lambda entry: entry[0])
+
+        for _key, path, kind in found:
             ref = AssetRef(
                 kind=kind,  # type: ignore[arg-type]
                 url=str(path.resolve()),
@@ -110,6 +133,19 @@ class LocalProvider(Provider):
                 credit="",
             )
             self._index.append((self._tags(path), ref))
+
+    def _order_key(self, path: Path):
+        """정렬 기준. 원래 올린 이름이 있으면 그쪽을 쓴다.
+
+        디스크에는 ASCII 이름으로 저장될 수 있어서(한글 경로 회피) 파일명만
+        보면 사용자가 붙인 순서를 알 수 없다.
+        """
+        try:
+            parts = list(path.relative_to(self.folder).parts[:-1])
+        except ValueError:
+            parts = []
+        label = self._tag_overrides.get(path.name) or path.stem
+        return [natural_key(p) for p in parts] + [natural_key(label)]
 
     def _load_tag_overrides(self) -> dict[str, str]:
         """웹 UI로 올린 소재는 ASCII 이름으로 저장되므로 원래 이름을 옆에 적어 둔다."""
@@ -451,6 +487,7 @@ __all__ = [
     "GiphyProvider",
     "TenorProvider",
     "ProviderError",
+    "natural_key",
     "build_providers",
     "missing_key_hint",
 ]

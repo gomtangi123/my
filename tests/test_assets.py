@@ -593,3 +593,90 @@ class TestShareDurations:
         from capcut_auto.assets.planner import share_durations
 
         assert share_durations([], 10.0) == []
+
+
+class TestNaturalOrder:
+    """파일 이름 순서가 곧 등장 순서. 숫자는 숫자로 읽어야 한다."""
+
+    def test_numbers_sort_numerically(self):
+        from capcut_auto.assets.providers import natural_key
+
+        names = ["10", "2", "1", "20", "3", "11"]
+        assert sorted(names, key=natural_key) == ["1", "2", "3", "10", "11", "20"]
+
+    def test_mixed_names(self):
+        from capcut_auto.assets.providers import natural_key
+
+        names = ["img10", "img2", "img1"]
+        assert sorted(names, key=natural_key) == ["img1", "img2", "img10"]
+
+    def test_zero_padded_and_plain_mix(self):
+        from capcut_auto.assets.providers import natural_key
+
+        assert sorted(["9", "010", "2"], key=natural_key) == ["2", "9", "010"]
+
+    def make_numbered(self, tmp_path, count=20):
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir(exist_ok=True)
+        for i in range(1, count + 1):
+            Image.new("RGB", (320, 180), (i * 10 % 255, 5, 5)).save(folder / f"{i}.png")
+        return folder
+
+    def test_provider_lists_1_to_20_in_order(self, tmp_path):
+        provider = LocalProvider(folder=self.make_numbered(tmp_path, 20))
+        names = [ref.source_id for ref in provider.inventory()]
+        assert names == [f"{i}.png" for i in range(1, 21)]
+
+    def test_overlays_follow_the_numbering(self, tmp_path):
+        folder = self.make_numbered(tmp_path, 20)
+        plan = make_plan([], total=60.0)
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(coverage="full"),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        ordered = sorted(result.overlays, key=lambda o: o.start)
+        assert [o.asset.path.name for o in ordered] == [f"{i}.png" for i in range(1, 21)]
+        assert len(ordered) == 20
+        for overlay in ordered:
+            assert overlay.duration == pytest.approx(3.0)   # 60초 / 20장
+
+    def test_original_korean_name_decides_the_order(self, tmp_path):
+        """웹 UI로 올리면 디스크 이름이 바뀌므로 원래 이름으로 정렬해야 한다."""
+        import json as _json
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir()
+        # 디스크 이름은 순서와 무관하게 붙는다
+        for disk in ("media-zzz.png", "media-aaa.png", "media-mmm.png"):
+            Image.new("RGB", (32, 18), (1, 1, 1)).save(folder / disk)
+        (folder / ".tags.json").write_text(
+            _json.dumps({"media-zzz.png": "1", "media-aaa.png": "2", "media-mmm.png": "3"}),
+            encoding="utf-8",
+        )
+        provider = LocalProvider(folder=folder)
+        assert [r.source_id for r in provider.inventory()] == [
+            "media-zzz.png", "media-aaa.png", "media-mmm.png"
+        ]
+
+    def test_warns_when_images_flash_by(self, tmp_path):
+        """장수에 비해 영상이 짧으면 막지는 말되 알려 줘야 한다."""
+        folder = self.make_numbered(tmp_path, 20)
+        plan = make_plan([], total=10.0)      # 20장 / 10초 = 0.5초씩
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(coverage="full"),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        assert len(result.overlays) == 20     # 그래도 다 넣는다
+        assert any("한 장이" in note for note in result.skipped)
+
+    def test_no_warning_when_there_is_room(self, tmp_path):
+        folder = self.make_numbered(tmp_path, 5)
+        plan = make_plan([], total=60.0)      # 5장 / 60초 = 12초씩
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(coverage="full"),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        assert not any("한 장이" in note for note in result.skipped)
