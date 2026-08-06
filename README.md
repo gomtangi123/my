@@ -216,11 +216,20 @@ capcut-auto edit 영상.mp4
 
 ## 웹 UI
 
+**Windows에서 가장 쉬운 방법**: repo 폴더의 **`시작하기.bat`** 을 더블클릭하세요.
+환경을 켜고 브라우저까지 알아서 열어 줍니다. 바탕화면에 바로가기를 만들어 두면
+다음부터는 클릭 한 번이면 됩니다.
+
+명령줄로 켤 때:
+
 ```bash
 capcut-auto web              # http://127.0.0.1:8765
 capcut-auto web --open       # 브라우저까지 열기
 capcut-auto web -p 9000      # 포트 바꾸기
 ```
+
+> 새 터미널을 열 때마다 `conda activate capcut` 과 repo 폴더로 `cd` 가 필요합니다.
+> `시작하기.bat` 은 그 두 가지를 대신해 줍니다.
 
 한 화면에서 다 됩니다.
 
