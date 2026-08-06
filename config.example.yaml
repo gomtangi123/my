@@ -113,6 +113,9 @@ assets:
   prefer: [video, image]
   # spots = 키워드 맞는 자리에만 (기본) / full = 처음부터 끝까지 빈틈없이
   coverage: spots
+  # full일 때 소재가 모자라면 돌려 쓸지. false면 한 장씩 한 번만 쓰고
+  # 전체 길이를 장수로 나눠 고르게 배분한다.
+  reuse: false
   gif_for_reactions: true
   min_duration: 1.80
   max_duration: 4.50

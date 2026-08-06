@@ -357,6 +357,8 @@ def build_config(options: dict[str, Any]) -> Config:
 
     if options.get("full_coverage"):
         overrides["assets.coverage"] = "full"
+    if "reuse_images" in options:
+        overrides["assets.reuse"] = bool(options["reuse_images"])
 
     if options.get("prefer"):
         first = options["prefer"]

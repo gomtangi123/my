@@ -200,8 +200,11 @@ class AssetsConfig:
     gif_for_reactions: bool = True
     # 소재를 어떻게 깔지.
     #   "spots" — 키워드가 맞는 자리에만 띄엄띄엄 (기본)
-    #   "full"  — 처음부터 끝까지 빈틈없이. 소재가 모자라면 돌려 쓴다.
+    #   "full"  — 처음부터 끝까지 빈틈없이
     coverage: str = "spots"
+    # 전체 채우기에서 소재가 모자랄 때 같은 걸 다시 쓸지.
+    # False면 한 장씩 한 번만 쓰고, 영상 길이를 장수로 나눠 고르게 배분한다.
+    reuse: bool = False
     # 제공자당 후보 개수
     candidates: int = 8
     # 한 소재가 화면에 머무는 시간

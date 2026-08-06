@@ -141,6 +141,11 @@ def _plan_full_coverage(
     searched: dict[tuple[str, str], list[AssetRef]] = {}
     fetched: set[tuple[str, str]] = set()
     pool = _preload(providers, cfg, cache_dir, fetched, skipped)
+
+    if pool and not cfg.reuse:
+        # 한 장씩 한 번만. 영상 길이를 장수로 나눠 고르게 배분한다.
+        return _spread_once(pool, plan, cfg, total, query_map, skipped, say)
+
     if pool:
         say(f"내 소재 {len(pool)}개를 전체 구간에 돌려 씁니다")
     cursor = 0.0
@@ -184,6 +189,90 @@ def _plan_full_coverage(
     if not overlays:
         skipped.append("쓸 수 있는 소재가 없어 전체 채우기를 못 했습니다.")
     return AssetPlanResult(overlays, skipped)
+
+
+def _spread_once(
+    pool: list[Asset],
+    plan: EditPlan,
+    cfg: AssetsConfig,
+    total: float,
+    query_map: dict,
+    skipped: list[str],
+    say,
+) -> AssetPlanResult:
+    """가진 소재를 한 장씩 한 번만 써서 전체를 덮는다."""
+    durations = share_durations(pool, total)
+
+    overlays: list[Overlay] = []
+    cursor = 0.0
+    for asset, duration in zip(pool, durations):
+        if duration <= 0.05:
+            continue
+        slot = _slot_at(plan, cursor, cursor + duration, cfg, query_map)
+        overlays.append(
+            Overlay(
+                start=cursor,
+                end=cursor + duration,
+                asset=asset,
+                keyword=slot.keyword,
+                score=slot.score,
+                scale=_scale_for(asset.kind, cfg),
+                position_y=_position_for(asset.kind, cfg),
+                reason="coverage",
+            )
+        )
+        cursor += duration
+
+    covered = sum(o.duration for o in overlays)
+    say(
+        f"소재 {len(overlays)}개를 한 번씩만 사용 — "
+        f"한 개당 평균 {covered / max(len(overlays), 1):.1f}초"
+    )
+    if total - covered > 0.2:
+        # 영상 소재가 짧아서 다 채우지 못한 경우
+        skipped.append(
+            f"소재 길이가 모자라 {total - covered:.1f}초가 비었습니다. "
+            "이미지를 더 올리거나 '반복해서 쓰기'를 켜세요."
+        )
+        say(f"  주의: {total - covered:.1f}초가 비었습니다")
+    return AssetPlanResult(overlays, skipped)
+
+
+def share_durations(assets: list[Asset], total: float) -> list[float]:
+    """전체 길이를 소재들에게 고르게 나눈다.
+
+    이미지는 얼마든지 늘릴 수 있지만 영상·GIF는 제 길이를 넘지 못한다.
+    한계에 걸린 소재를 먼저 확정하고, 남는 시간을 나머지가 다시 나눠 갖는다.
+    """
+    count = len(assets)
+    if count == 0 or total <= 0:
+        return []
+
+    limits = [
+        asset.duration
+        if asset.kind in ("video", "gif") and asset.duration > 0
+        else float("inf")
+        for asset in assets
+    ]
+    durations = [0.0] * count
+    settled = [False] * count
+    remaining, free = total, count
+
+    while free > 0:
+        share = remaining / free
+        capped = [i for i in range(count) if not settled[i] and limits[i] < share]
+        if not capped:
+            for i in range(count):
+                if not settled[i]:
+                    durations[i] = share
+            break
+        for i in capped:
+            durations[i] = limits[i]
+            settled[i] = True
+            remaining -= limits[i]
+            free -= 1
+
+    return durations
 
 
 def _boundaries(plan: EditPlan, cfg: AssetsConfig, total: float) -> list[float]:
@@ -273,8 +362,8 @@ def _next_asset(
                 pool.append(asset)
                 return asset
 
-    if not pool:
-        return None
+    if not pool or not cfg.reuse:
+        return None  # 한 번씩만 쓰기로 했으면 여기서 멈춘다
 
     # 돌려 쓰기 — 목록을 순서대로 한 바퀴씩 돈다.
     # 앞에 나온 것과 겹치면 한 칸 밀되, 후보에서 아예 빼면 안 된다.

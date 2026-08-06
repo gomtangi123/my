@@ -7,6 +7,7 @@ from capcut_auto.assets.providers import LocalProvider, Provider
 from capcut_auto.config import AssetsConfig
 from capcut_auto.models import EditPlan, Span, SubtitleLine, Word
 from capcut_auto.timeline import TimeMap
+from pathlib import Path
 
 
 def words(*specs):
@@ -374,6 +375,8 @@ class TestFullCoverage:
         return make_plan(specs, total=40.0)
 
     def cfg(self, **kwargs):
+        # 이 묶음은 '돌려 쓰기' 동작을 검증한다
+        kwargs.setdefault("reuse", True)
         return AssetsConfig(coverage="full", **kwargs)
 
     def test_covers_the_whole_timeline_without_gaps(self, tmp_path, asset_file, talky_plan):
@@ -498,3 +501,95 @@ class TestFullCoverage:
             [FakeProvider(asset_file)], tmp_path / "c",
         )
         assert result.overlays == []
+
+
+class TestUseEachOnce:
+    """이미지를 반복하지 않고 한 장씩 한 번만 쓰는 모드 (기본값)."""
+
+    def images(self, tmp_path, count=4):
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir(exist_ok=True)
+        for i in range(count):
+            Image.new("RGB", (320, 180), (i * 20, 5, 5)).save(folder / f"img{i}.png")
+        return folder
+
+    def run(self, tmp_path, folder, total=40.0, **cfg_kwargs):
+        from capcut_auto.assets.providers import LocalProvider
+
+        plan = make_plan([], total=total)
+        return plan_assets(
+            plan, TimeMap(plan.keeps),
+            AssetsConfig(coverage="full", **cfg_kwargs),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+
+    def test_each_image_appears_exactly_once(self, tmp_path):
+        result = self.run(tmp_path, self.images(tmp_path, 4))
+        names = [o.asset.path.name for o in result.overlays]
+        assert len(names) == 4
+        assert len(set(names)) == 4
+
+    def test_timeline_is_split_evenly(self, tmp_path):
+        result = self.run(tmp_path, self.images(tmp_path, 4), total=40.0)
+        for overlay in result.overlays:
+            assert overlay.duration == pytest.approx(10.0)
+
+    def test_still_covers_everything_without_gaps(self, tmp_path):
+        result = self.run(tmp_path, self.images(tmp_path, 3), total=30.0)
+        overlays = sorted(result.overlays, key=lambda o: o.start)
+        assert overlays[0].start == pytest.approx(0.0)
+        assert overlays[-1].end == pytest.approx(30.0)
+        for a, b in zip(overlays, overlays[1:]):
+            assert b.start == pytest.approx(a.end)
+
+    def test_one_image_fills_the_whole_thing(self, tmp_path):
+        result = self.run(tmp_path, self.images(tmp_path, 1), total=25.0)
+        assert len(result.overlays) == 1
+        assert result.overlays[0].duration == pytest.approx(25.0)
+
+    def test_reuse_flag_brings_repeats_back(self, tmp_path):
+        result = self.run(tmp_path, self.images(tmp_path, 2), total=40.0, reuse=True)
+        names = [o.asset.path.name for o in result.overlays]
+        assert len(names) > len(set(names))   # 반복이 생긴다
+
+
+class TestShareDurations:
+    """길이를 나누는 계산. 영상 소재는 제 길이를 넘지 못한다."""
+
+    def asset(self, kind, duration=0.0):
+        from capcut_auto.assets.models import Asset
+
+        return Asset(kind=kind, path=Path("x"), source="t", duration=duration)
+
+    def test_images_split_evenly(self):
+        from capcut_auto.assets.planner import share_durations
+
+        assets = [self.asset("image") for _ in range(4)]
+        assert share_durations(assets, 40.0) == [10.0] * 4
+
+    def test_short_video_is_capped_and_rest_absorb_it(self):
+        from capcut_auto.assets.planner import share_durations
+
+        # 30초를 셋이 나누면 10초씩인데, 영상 하나가 4초뿐이면
+        # 남은 26초를 이미지 둘이 13초씩 가져간다
+        assets = [self.asset("video", 4.0), self.asset("image"), self.asset("image")]
+        assert share_durations(assets, 30.0) == pytest.approx([4.0, 13.0, 13.0])
+
+    def test_all_short_videos_cannot_fill(self):
+        from capcut_auto.assets.planner import share_durations
+
+        assets = [self.asset("video", 2.0), self.asset("video", 3.0)]
+        assert share_durations(assets, 30.0) == pytest.approx([2.0, 3.0])
+
+    def test_long_video_is_not_capped(self):
+        from capcut_auto.assets.planner import share_durations
+
+        assets = [self.asset("video", 100.0), self.asset("image")]
+        assert share_durations(assets, 20.0) == pytest.approx([10.0, 10.0])
+
+    def test_empty(self):
+        from capcut_auto.assets.planner import share_durations
+
+        assert share_durations([], 10.0) == []
