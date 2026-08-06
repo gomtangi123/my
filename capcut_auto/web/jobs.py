@@ -262,22 +262,30 @@ class JobStore:
         archive = _zip_draft(result.path, job.work_dir / f"{result.name}-draft.zip")
         job.outputs["draft"] = str(archive)
 
-        # 미리보기 렌더
+        # 미리보기 렌더.
+        # 여기서 실패해도 작업 전체를 실패로 만들지 않는다. 드래프트·자막은
+        # 이미 다 만들어졌고, 미리보기는 어디까지나 확인용이다.
         if job.options.get("preview", True):
-            preview = job.work_dir / "preview.mp4"
-            render_mod.render(
-                plan,
-                cfg,
-                preview,
-                width=cfg.output.width or info.width or 1920,
-                height=cfg.output.height or info.height or 1080,
-                srt_path=Path(job.outputs["srt"]) if "srt" in job.outputs else None,
-                work_dir=job.work_dir / ".render",
-                has_audio=info.has_audio,
-                show_stats=False,
-                progress=say,
-            )
-            job.outputs["preview"] = str(preview)
+            try:
+                self._render_preview(job, plan, info, cfg, say)
+            except Exception as exc:
+                say(f"미리보기 렌더 실패 (드래프트와 자막에는 영향 없습니다): {exc}")
+
+    def _render_preview(self, job: Job, plan, info, cfg, say) -> None:
+        preview = job.work_dir / "preview.mp4"
+        render_mod.render(
+            plan,
+            cfg,
+            preview,
+            width=cfg.output.width or info.width or 1920,
+            height=cfg.output.height or info.height or 1080,
+            srt_path=Path(job.outputs["srt"]) if "srt" in job.outputs else None,
+            work_dir=job.work_dir / ".render",
+            has_audio=info.has_audio,
+            show_stats=False,
+            progress=say,
+        )
+        job.outputs["preview"] = str(preview)
 
     # ------------------------------------------------- CapCut 폴더에 설치
 

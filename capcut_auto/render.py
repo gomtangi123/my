@@ -9,6 +9,8 @@ CapCut에 넣기 전에 결과를 빠르게 확인하거나, 그냥 완성본이
 
 from __future__ import annotations
 
+import platform
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,7 +29,9 @@ class RenderInputs:
 
 
 def _build_inputs(plan: EditPlan) -> RenderInputs:
-    args: list[str] = ["-i", plan.source]
+    # ffmpeg은 자막 파일이 있는 폴더에서 실행되므로(아래 render 참고)
+    # 나머지 경로는 전부 절대경로로 넘겨야 한다.
+    args: list[str] = ["-i", str(Path(plan.source).resolve())]
     overlay_indices: list[int] = []
     sfx_indices: list[int] = []
     index = 1
@@ -36,12 +40,12 @@ def _build_inputs(plan: EditPlan) -> RenderInputs:
         if overlay.asset.kind == "image":
             # 정지 이미지는 필요한 길이만큼 루프시켜야 프레임이 생긴다.
             args += ["-loop", "1", "-t", f"{overlay.duration:.6f}"]
-        args += ["-i", str(overlay.asset.path)]
+        args += ["-i", str(Path(overlay.asset.path).resolve())]
         overlay_indices.append(index)
         index += 1
 
     for placement in plan.sfx:
-        args += ["-i", str(placement.sound.path)]
+        args += ["-i", str(Path(placement.sound.path).resolve())]
         sfx_indices.append(index)
         index += 1
 
@@ -54,7 +58,8 @@ def build_filter_script(
     width: int,
     height: int,
     with_audio: bool,
-    subtitles_path: Path | None = None,
+    subtitles_name: str | None = None,
+    font: str = "",
 ) -> tuple[str, str, str | None]:
     """(필터 스크립트, 비디오 출력 라벨, 오디오 출력 라벨)."""
     parts: list[str] = []
@@ -123,19 +128,26 @@ def build_filter_script(
         audio_label = "[mixa]"
 
     # 4) 자막 태우기
-    if subtitles_path is not None:
-        parts.append(
-            f"{video_label}subtitles='{_escape_for_filter(subtitles_path)}'[burned]"
-        )
+    #
+    # 경로는 절대경로로 주지 않는다. 윈도우의 "C:" 콜론이 필터 문법의
+    # 구분자와 겹쳐서, 어떻게 이스케이프해도 파서가 걸고 넘어진다.
+    # 대신 ffmpeg을 자막 파일이 있는 폴더에서 실행하고 파일 이름만 넘긴다.
+    if subtitles_name:
+        style = f":force_style='FontName={font}'" if font else ""
+        parts.append(f"{video_label}subtitles={subtitles_name}{style}[burned]")
         video_label = "[burned]"
 
     return ";\n".join(parts), video_label, audio_label
 
 
-def _escape_for_filter(path: Path) -> str:
-    """subtitles= 필터 안에 넣을 경로 이스케이프 (윈도우 드라이브 문자 포함)."""
-    text = str(path.resolve()).replace("\\", "/")
-    return text.replace("'", r"\'").replace(":", r"\:")
+def default_subtitle_font() -> str:
+    """자막을 태울 때 쓸 기본 글꼴. 한글이 네모로 나오는 걸 막는다."""
+    system = platform.system()
+    if system == "Windows":
+        return "Malgun Gothic"
+    if system == "Darwin":
+        return "AppleSDGothicNeo"
+    return ""  # 리눅스는 fontconfig에 맡긴다
 
 
 def render(
@@ -153,13 +165,21 @@ def render(
     say = progress or (lambda _msg: None)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path = out_path.resolve()
     work_dir = Path(work_dir or out_path.parent)
     work_dir.mkdir(parents=True, exist_ok=True)
+    work_dir = work_dir.resolve()
 
     inputs = _build_inputs(plan)
-    burn = srt_path if (cfg.output.burn_subtitles and srt_path is not None) else None
+
+    burn_name = None
+    if cfg.output.burn_subtitles and srt_path is not None:
+        # 필터에 넘길 이름은 ASCII 짧은 이름으로 통일한다 (경로 문제 회피).
+        burn_name = "subs.srt"
+        shutil.copyfile(srt_path, work_dir / burn_name)
+
     script, video_label, audio_label = build_filter_script(
-        plan, inputs, width, height, has_audio, burn
+        plan, inputs, width, height, has_audio, burn_name, default_subtitle_font()
     )
 
     script_path = work_dir / "filter_graph.txt"
@@ -170,7 +190,7 @@ def render(
         # 터미널에서는 진행률이 보이는 게 낫고, 웹 UI에서는 서버 콘솔만 더럽힌다.
         args.insert(3, "-stats")
     args += inputs.args
-    args += ["-filter_complex_script", str(script_path), "-map", video_label]
+    args += ["-filter_complex_script", str(script_path.resolve()), "-map", video_label]
     if audio_label:
         args += ["-map", audio_label, "-c:a", cfg.output.audio_codec, "-b:a", "192k"]
     args += [
@@ -191,7 +211,8 @@ def render(
         f"렌더링: 클립 {len(plan.keeps)}개 / 오버레이 {len(plan.overlays)}개 / "
         f"효과음 {len(plan.sfx)}개 → {out_path.name}"
     )
-    ffmpeg.run(args, capture=not show_stats)
+    # 자막 필터가 상대 경로를 찾을 수 있도록 작업 폴더에서 실행한다.
+    ffmpeg.run(args, capture=not show_stats, cwd=work_dir)
     return out_path
 
 
