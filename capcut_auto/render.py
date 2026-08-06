@@ -60,9 +60,13 @@ def build_filter_script(
     with_audio: bool,
     subtitles_name: str | None = None,
     font: str = "",
+    slideshow: bool = False,
 ) -> tuple[str, str, str | None]:
     """(필터 스크립트, 비디오 출력 라벨, 오디오 출력 라벨)."""
     parts: list[str] = []
+
+    if slideshow:
+        return _slideshow_script(plan, inputs, width, height, subtitles_name, font)
 
     # 1) 남길 구간만 잘라서 이어 붙인다.
     for i, span in enumerate(plan.keeps):
@@ -140,6 +144,70 @@ def build_filter_script(
     return ";\n".join(parts), video_label, audio_label
 
 
+def _slideshow_script(
+    plan: EditPlan,
+    inputs: RenderInputs,
+    width: int,
+    height: int,
+    subtitles_name: str | None,
+    font: str,
+) -> tuple[str, str, str | None]:
+    """이미지를 이어 붙여 화면을 만들고, 대본 음성을 컷대로 잘라 깐다.
+
+    영상 트랙이 없는 입력(대본 음성 파일)에서 쓴다.
+    """
+    parts: list[str] = []
+
+    # 1) 이미지들을 화면 크기에 맞춰 레터박스로 채우고 차례로 잇는다.
+    for slot, (overlay, index) in enumerate(zip(plan.overlays, inputs.overlay_indices)):
+        parts.append(
+            f"[{index}:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"setsar=1,fps=30,trim=duration={overlay.duration:.6f},"
+            f"setpts=PTS-STARTPTS[s{slot}]"
+        )
+    n = len(plan.overlays)
+    parts.append("".join(f"[s{i}]" for i in range(n)) + f"concat=n={n}:v=1:a=0[basev]")
+
+    # 2) 대본 음성은 남긴 구간만 이어 붙인다.
+    for i, span in enumerate(plan.keeps):
+        parts.append(
+            f"[0:a]atrim=start={span.start:.6f}:end={span.end:.6f},"
+            f"asetpts=PTS-STARTPTS[a{i}]"
+        )
+    k = len(plan.keeps)
+    parts.append("".join(f"[a{i}]" for i in range(k)) + f"concat=n={k}:v=0:a=1[basea]")
+
+    video_label, audio_label = "[basev]", "[basea]"
+
+    # 3) 효과음
+    if inputs.sfx_indices:
+        labels = [audio_label]
+        for slot, (placement, index) in enumerate(zip(plan.sfx, inputs.sfx_indices)):
+            delay_ms = int(round(max(0.0, placement.time) * 1000))
+            parts.append(
+                f"[{index}:a]atrim=0:{max(placement.duration, 0.05):.6f},"
+                f"asetpts=PTS-STARTPTS,"
+                f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+                f"volume={placement.volume:.4f},"
+                f"adelay={delay_ms}|{delay_ms}[sfx{slot}]"
+            )
+            labels.append(f"[sfx{slot}]")
+        parts.append(
+            "".join(labels)
+            + f"amix=inputs={len(labels)}:normalize=0:duration=first"
+            ":dropout_transition=0[mixa]"
+        )
+        audio_label = "[mixa]"
+
+    if subtitles_name:
+        style = f":force_style='FontName={font}'" if font else ""
+        parts.append(f"{video_label}subtitles={subtitles_name}{style}[burned]")
+        video_label = "[burned]"
+
+    return ";\n".join(parts), video_label, audio_label
+
+
 def default_subtitle_font() -> str:
     """자막을 태울 때 쓸 기본 글꼴. 한글이 네모로 나오는 걸 막는다."""
     system = platform.system()
@@ -159,6 +227,7 @@ def render(
     srt_path: Path | None = None,
     work_dir: Path | None = None,
     has_audio: bool = True,
+    slideshow: bool = False,
     show_stats: bool = True,
     progress=None,
 ) -> Path:
@@ -179,7 +248,8 @@ def render(
         shutil.copyfile(srt_path, work_dir / burn_name)
 
     script, video_label, audio_label = build_filter_script(
-        plan, inputs, width, height, has_audio, burn_name, default_subtitle_font()
+        plan, inputs, width, height, has_audio, burn_name,
+        default_subtitle_font(), slideshow,
     )
 
     script_path = work_dir / "filter_graph.txt"

@@ -379,3 +379,87 @@ class TestDurationMismatch:
         assert result.clip_count == 2  # plan은 그대로지만
         segments = tracks_by_type(load_draft(result))["video"][0]["segments"]
         assert len(segments) == 1     # 실제로 들어간 건 하나
+
+
+class TestSlideshow:
+    """영상 없이 대본 음성 + 이미지로 만드는 경우."""
+
+    @pytest.fixture
+    def audio_info(self):
+        # 영상 트랙이 없는 입력
+        return MediaInfo(
+            path="narration.mp3", duration=30.0, width=0, height=0, fps=0.0,
+            has_audio=True, sample_rate=44100, channels=2,
+        )
+
+    @pytest.fixture
+    def audio_plan(self, tmp_path, media):
+        import wave
+
+        source = tmp_path / "narration.wav"
+        with wave.open(str(source), "wb") as fh:
+            fh.setnchannels(1); fh.setsampwidth(2); fh.setframerate(44100)
+            fh.writeframes(b"\0\0" * 44100 * 30)
+
+        plan = EditPlan(
+            source=str(source), source_duration=30.0,
+            keeps=[Span(0, 10), Span(12, 20)], cuts=[], subtitles=[],
+        )
+        plan.overlays = [
+            Overlay(start=s, end=e,
+                    asset=Asset(kind="image", path=media["broll"], source="t",
+                                width=640, height=360),
+                    keyword="k", scale=1.0, position_y=0.0)
+            for s, e in [(0.0, 6.0), (6.0, 12.0), (12.0, 18.0)]
+        ]
+        return plan
+
+    def test_images_become_the_main_video_track(self, tmp_path, audio_plan, audio_info):
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        video = tracks_by_type(load_draft(result))["video"]
+        assert len(video) == 1                      # 오버레이 트랙이 아니라 본편
+        assert len(video[0]["segments"]) == 3
+        assert result.overlay_count == 3
+
+    def test_images_are_laid_end_to_end(self, tmp_path, audio_plan, audio_info):
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        targets = [s["target_timerange"]
+                   for s in tracks_by_type(load_draft(result))["video"][0]["segments"]]
+        assert targets[0]["start"] == 0
+        for previous, current in zip(targets, targets[1:]):
+            assert current["start"] == previous["start"] + previous["duration"]
+
+    def test_images_fill_the_frame(self, tmp_path, audio_plan, audio_info):
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        segment = tracks_by_type(load_draft(result))["video"][0]["segments"][0]
+        assert segment["clip"]["scale"]["x"] == 1.0
+        assert segment["volume"] == 0.0     # 이미지 소리는 내레이션을 방해하면 안 된다
+
+    def test_narration_track_follows_the_cuts(self, tmp_path, audio_plan, audio_info):
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        audio = tracks_by_type(load_draft(result))["audio"]
+        narration = audio[0]["segments"]
+        assert len(narration) == 2      # keeps 2개
+        sources = [(s["source_timerange"]["start"], s["source_timerange"]["duration"])
+                   for s in narration]
+        assert sources == [(0, 10_000_000), (12_000_000, 8_000_000)]
+
+    def test_canvas_falls_back_to_the_first_image(self, tmp_path, audio_plan, audio_info):
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        canvas = load_draft(result)["canvas_config"]
+        assert (canvas["width"], canvas["height"]) == (640, 360)
+
+    def test_without_images_it_fails_clearly(self, tmp_path, audio_plan, audio_info):
+        audio_plan.overlays = []
+        with pytest.raises(draft_mod.TemplateError):
+            draft_mod.build(audio_plan, audio_info, Config(), drafts_root=tmp_path / "d")

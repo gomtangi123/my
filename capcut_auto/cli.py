@@ -426,6 +426,7 @@ def cmd_edit(args) -> int:
             srt_path=srt_path,
             work_dir=out_dir / ".render",
             has_audio=info.has_audio,
+            slideshow=info.is_audio_only,
             progress=_progress(args),
         )
         print(f"렌더 완료: {target}")

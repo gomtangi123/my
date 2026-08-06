@@ -41,6 +41,7 @@ MAIN_TRACK = "main"
 OVERLAY_TRACK = "overlay"
 TEXT_TRACK = "sub"
 SFX_TRACK = "sfx"
+NARRATION_TRACK = "narration"
 
 CONTENT_FILE = "draft_content.json"
 
@@ -89,8 +90,13 @@ def build(
     name = project_name or cfg.output.project_name or Path(plan.source).stem
 
     folder = DraftFolder(str(drafts_root))
-    width = cfg.output.width or info.width or 1920
-    height = cfg.output.height or info.height or 1080
+    width = cfg.output.width or info.width
+    height = cfg.output.height or info.height
+    if not (width and height) and plan.overlays:
+        # 오디오만 들어온 경우엔 첫 이미지 크기를 화면 크기로 삼는다.
+        first = plan.overlays[0].asset
+        width, height = width or first.width, height or first.height
+    width, height = width or 1920, height or 1080
     fps = int(round(cfg.output.fps or info.fps or 30))
 
     if template:
@@ -108,8 +114,13 @@ def build(
         )
         mode = "native"
 
-    _add_main_track(script, plan, cfg)
-    overlays = _add_overlay_track(script, plan)
+    if info.is_audio_only:
+        # 대본 음성 + 이미지 = 슬라이드쇼. 이미지가 본편이 되고 음성이 깔린다.
+        overlays = _add_slideshow_track(script, plan)
+        _add_narration_track(script, plan)
+    else:
+        _add_main_track(script, plan, cfg)
+        overlays = _add_overlay_track(script, plan)
     texts = _add_text_track(script, plan, cfg)
     sfx = _add_sfx_track(script, plan)
 
@@ -170,6 +181,72 @@ def _add_main_track(script: ScriptFile, plan: EditPlan, cfg: Config) -> None:
             source_timerange=trange(start, duration),
         )
         script.add_segment(segment, MAIN_TRACK)
+        cursor += duration
+
+
+# -------------------------------------------------------------- 슬라이드쇼
+
+
+def _add_slideshow_track(script: ScriptFile, plan: EditPlan) -> int:
+    """이미지를 본편 트랙에 깐다 (영상 없이 음성만 있을 때).
+
+    오버레이가 아니라 화면 그 자체이므로 크기 조절 없이 꽉 채운다.
+    """
+    if not plan.overlays:
+        raise TemplateError("화면에 쓸 이미지가 없습니다.")
+
+    _ensure_track(script, TrackType.video, MAIN_TRACK, 0)
+    added = 0
+    cursor = 0.0
+
+    for overlay in plan.overlays:
+        try:
+            material = VideoMaterial(str(overlay.asset.path))
+        except (FileNotFoundError, ValueError):
+            continue
+
+        duration = overlay.duration
+        if material.material_type == "video":
+            duration = min(duration, material.duration / cc.SEC)
+        if duration <= 0.05:
+            continue
+
+        script.add_segment(
+            VideoSegment(
+                material,
+                target_timerange=trange(cursor, duration),
+                source_timerange=trange(0.0, duration),
+                volume=0.0,  # 이미지 소재에 붙은 소리는 내레이션을 방해한다
+            ),
+            MAIN_TRACK,
+        )
+        cursor += duration
+        added += 1
+    return added
+
+
+def _add_narration_track(script: ScriptFile, plan: EditPlan) -> None:
+    """대본 음성을 컷 구간대로 잘라 오디오 트랙에 올린다."""
+    material = AudioMaterial(plan.source)
+    script.add_material(material)
+    limit = material.duration / cc.SEC
+
+    _ensure_track(script, TrackType.audio, NARRATION_TRACK, 0)
+    cursor = 0.0
+    for span in plan.keeps:
+        start = min(span.start, limit)
+        end = min(span.end, limit)
+        duration = end - start
+        if duration <= 0.02:
+            continue
+        script.add_segment(
+            AudioSegment(
+                material,
+                trange(cursor, duration),
+                source_timerange=trange(start, duration),
+            ),
+            NARRATION_TRACK,
+        )
         cursor += duration
 
 
@@ -311,6 +388,7 @@ __all__ = [
     "CONTENT_FILE",
     "MAIN_TRACK",
     "OVERLAY_TRACK",
+    "NARRATION_TRACK",
     "TEXT_TRACK",
     "SFX_TRACK",
 ]

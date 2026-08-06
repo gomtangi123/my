@@ -277,11 +277,12 @@ class JobStore:
             plan,
             cfg,
             preview,
-            width=cfg.output.width or info.width or 1920,
-            height=cfg.output.height or info.height or 1080,
+            width=cfg.output.width or info.width or _asset_width(plan),
+            height=cfg.output.height or info.height or _asset_height(plan),
             srt_path=Path(job.outputs["srt"]) if "srt" in job.outputs else None,
             work_dir=job.work_dir / ".render",
             has_audio=info.has_audio,
+            slideshow=info.is_audio_only,
             show_stats=False,
             progress=say,
         )
@@ -371,6 +372,15 @@ def build_config(options: dict[str, Any]) -> Config:
 
 
 # ------------------------------------------------------------------- 유틸
+
+
+def _asset_width(plan) -> int:
+    """오디오만 들어왔을 때 화면 크기는 첫 이미지에서 가져온다."""
+    return (plan.overlays[0].asset.width if plan.overlays else 0) or 1920
+
+
+def _asset_height(plan) -> int:
+    return (plan.overlays[0].asset.height if plan.overlays else 0) or 1080
 
 
 def _zip_draft(draft_dir: Path, target: Path) -> Path:

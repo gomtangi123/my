@@ -128,3 +128,53 @@ class TestInputs:
         inputs = render_mod._build_inputs(make_plan(tmp_path, overlays=2, sfx=3))
         assert inputs.overlay_indices == [1, 2]
         assert inputs.sfx_indices == [3, 4, 5]
+
+
+class TestSlideshowRender:
+    """영상 없이 음성 + 이미지로 그리는 필터 그래프."""
+
+    def make(self, tmp_path, images=3, sfx=0):
+        plan = make_plan(tmp_path, overlays=images, sfx=sfx)
+        plan.keeps = [Span(0, 5), Span(7, 12)]
+        return plan
+
+    def build_slideshow(self, plan, **kwargs):
+        inputs = render_mod._build_inputs(plan)
+        return render_mod.build_filter_script(
+            plan, inputs, 1920, 1080, True, slideshow=True, **kwargs
+        )
+
+    def test_video_comes_from_the_images(self, tmp_path):
+        script, video, _a = self.build_slideshow(self.make(tmp_path))
+        assert "concat=n=3:v=1:a=0[basev]" in script
+        assert "[0:v]" not in script  # 입력 영상 트랙을 건드리지 않는다
+        assert video == "[basev]"
+
+    def test_images_are_letterboxed_to_the_canvas(self, tmp_path):
+        script, _v, _a = self.build_slideshow(self.make(tmp_path))
+        assert "scale=1920:1080:force_original_aspect_ratio=decrease" in script
+        assert "pad=1920:1080" in script
+
+    def test_audio_comes_from_the_source_cuts(self, tmp_path):
+        script, _v, audio = self.build_slideshow(self.make(tmp_path))
+        assert script.count("[0:a]atrim=start=") == 2
+        assert "concat=n=2:v=0:a=1[basea]" in script
+        assert audio == "[basea]"
+
+    def test_sfx_still_mixes_in(self, tmp_path):
+        script, _v, audio = self.build_slideshow(self.make(tmp_path, sfx=2))
+        assert "amix=inputs=3" in script
+        assert audio == "[mixa]"
+
+    def test_subtitles_burn_on_top(self, tmp_path):
+        script, video, _a = self.build_slideshow(
+            self.make(tmp_path), subtitles_name="subs.srt"
+        )
+        assert "subtitles=subs.srt" in script
+        assert video == "[burned]"
+
+    def test_each_image_lasts_its_slot(self, tmp_path):
+        plan = self.make(tmp_path, images=2)
+        plan.overlays[0].end = plan.overlays[0].start + 2.5
+        script, _v, _a = self.build_slideshow(plan)
+        assert "trim=duration=2.500000" in script

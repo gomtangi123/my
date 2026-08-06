@@ -62,6 +62,11 @@ class MediaInfo:
     def is_vertical(self) -> bool:
         return self.height > self.width
 
+    @property
+    def is_audio_only(self) -> bool:
+        """영상 트랙이 없는 입력. 대본 음성 파일 하나만 준 경우."""
+        return self.has_audio and not (self.width and self.height)
+
 
 def _parse_fraction(value: str | None, default: float) -> float:
     if not value:

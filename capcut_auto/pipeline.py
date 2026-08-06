@@ -43,6 +43,12 @@ def analyze(
         f"{info.fps:.2f}fps  오디오={'있음' if info.has_audio else '없음'}"
     )
 
+    if info.is_audio_only:
+        # 영상이 없으니 이미지가 화면을 통째로 맡아야 한다. 띄엄띄엄 깔면
+        # 나머지가 까맣게 남으므로 전체 채우기로 고정한다.
+        cfg.assets.coverage = "full"
+        say("영상 트랙이 없습니다 — 이미지로 화면을 채우는 슬라이드쇼로 만듭니다.")
+
     cuts: list[Cut] = []
 
     # 1) 무음
@@ -142,6 +148,11 @@ def analyze(
             )
             plan.overlays = result.overlays
             say(f"자료화면/이미지: {len(result.overlays)}개")
+            if info.is_audio_only and not result.overlays:
+                raise ValueError(
+                    "음성만으로는 영상을 만들 수 없습니다. "
+                    "화면에 쓸 이미지를 한 장 이상 올려 주세요."
+                )
             for note in result.skipped[:5]:
                 say(f"  건너뜀 — {note}")
 
