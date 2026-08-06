@@ -199,8 +199,14 @@ def _add_slideshow_track(script: ScriptFile, plan: EditPlan) -> int:
         )
 
     _ensure_track(script, TrackType.video, MAIN_TRACK, 0)
+    fps = max(script.fps, 1)
+
+    # 클립 경계를 프레임에 딱 맞춘다. CapCut에서 끝을 끌어 맞출 때 반 프레임씩
+    # 어긋나 있으면 성가시고, 스무 장쯤 되면 그 오차가 쌓여 마지막이 음성과
+    # 어긋난다. 누적 위치를 프레임 단위로 잡아 두면 오차가 쌓이지 않는다.
     added = 0
-    cursor = 0.0
+    placed_frames = 0
+    wanted = 0.0
 
     for overlay in plan.overlays:
         try:
@@ -208,24 +214,36 @@ def _add_slideshow_track(script: ScriptFile, plan: EditPlan) -> int:
         except (FileNotFoundError, ValueError):
             continue
 
-        duration = overlay.duration
+        wanted += overlay.duration
+        frames = max(1, round(wanted * fps) - placed_frames)
+
         if material.material_type == "video":
-            duration = min(duration, material.duration / cc.SEC)
-        if duration <= 0.05:
-            continue
+            limit = int(material.duration / cc.SEC * fps)
+            frames = max(1, min(frames, limit))
+
+        # 시작과 길이를 따로 반올림하면 1마이크로초씩 어긋나 클립이 겹친다.
+        # 두 끝을 프레임 번호에서 바로 뽑고 길이는 그 차이로 구한다.
+        start_us = _frame_us(placed_frames, fps)
+        end_us = _frame_us(placed_frames + frames, fps)
+        span = Timerange(start_us, end_us - start_us)
 
         script.add_segment(
             VideoSegment(
                 material,
-                target_timerange=trange(cursor, duration),
-                source_timerange=trange(0.0, duration),
+                target_timerange=span,
+                source_timerange=Timerange(0, end_us - start_us),
                 volume=0.0,  # 이미지 소재에 붙은 소리는 내레이션을 방해한다
             ),
             MAIN_TRACK,
         )
-        cursor += duration
+        placed_frames += frames
         added += 1
     return added
+
+
+def _frame_us(frames: int, fps: int) -> int:
+    """프레임 번호 -> 마이크로초."""
+    return int(round(frames * cc.SEC / fps))
 
 
 def _add_narration_track(script: ScriptFile, plan: EditPlan) -> None:

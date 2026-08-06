@@ -463,3 +463,55 @@ class TestSlideshow:
         audio_plan.overlays = []
         with pytest.raises(draft_mod.TemplateError):
             draft_mod.build(audio_plan, audio_info, Config(), drafts_root=tmp_path / "d")
+
+    def test_image_clips_land_on_frame_boundaries(self, tmp_path, audio_plan, audio_info):
+        """CapCut에서 끝을 끌어 맞출 때 반 프레임씩 어긋나 있으면 성가시다."""
+        # 30초를 7장으로 나누면 4.2857…초씩 — 프레임에 안 떨어지는 값
+        step = 30.0 / 7
+        audio_plan.overlays = [
+            Overlay(start=i * step, end=(i + 1) * step,
+                    asset=audio_plan.overlays[0].asset,
+                    keyword="k", scale=1.0, position_y=0.0)
+            for i in range(7)
+        ]
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        content = load_draft(result)
+        fps = content["fps"]
+        for segment in tracks_by_type(content)["video"][0]["segments"]:
+            for key in ("start", "duration"):
+                frames = segment["target_timerange"][key] / 1e6 * fps
+                assert frames == pytest.approx(round(frames), abs=0.001)
+
+    def test_rounding_does_not_drift_over_many_clips(self, tmp_path, audio_plan, audio_info):
+        step = 30.0 / 7
+        audio_plan.overlays = [
+            Overlay(start=i * step, end=(i + 1) * step,
+                    asset=audio_plan.overlays[0].asset,
+                    keyword="k", scale=1.0, position_y=0.0)
+            for i in range(7)
+        ]
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        segments = tracks_by_type(load_draft(result))["video"][0]["segments"]
+        total = sum(s["target_timerange"]["duration"] for s in segments) / 1e6
+        # 한 프레임 안쪽으로 원래 길이를 지켜야 한다 (오차가 쌓이면 안 된다)
+        assert total == pytest.approx(30.0, abs=1 / 30)
+
+    def test_clips_are_still_gapless_after_snapping(self, tmp_path, audio_plan, audio_info):
+        step = 30.0 / 7
+        audio_plan.overlays = [
+            Overlay(start=i * step, end=(i + 1) * step,
+                    asset=audio_plan.overlays[0].asset,
+                    keyword="k", scale=1.0, position_y=0.0)
+            for i in range(7)
+        ]
+        result = draft_mod.build(
+            audio_plan, audio_info, Config(), drafts_root=tmp_path / "d"
+        )
+        targets = [s["target_timerange"]
+                   for s in tracks_by_type(load_draft(result))["video"][0]["segments"]]
+        for previous, current in zip(targets, targets[1:]):
+            assert current["start"] == previous["start"] + previous["duration"]
