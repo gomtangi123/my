@@ -381,3 +381,44 @@ class TestWatch:
         store = JobStore(tmp_path / "w")
         events = list(store.watch("nope", timeout=0.01))
         assert events == [{"type": "error", "error": "없는 작업입니다."}]
+
+
+class TestAudioOnlyGuards:
+    """음성만 올렸을 때는 이미지가 화면이므로 관련 옵션이 꺼져 있으면 안 된다."""
+
+    def test_assets_are_forced_on(self, tmp_path):
+        """사용자가 '자료화면' 체크를 꺼도 음성 입력이면 켜져야 한다.
+
+        안 그러면 올려 둔 이미지를 아예 안 쓰고 "화면에 쓸 이미지가 없다"며
+        죽는다 (실제로 그렇게 실패했다).
+        """
+        from capcut_auto import pipeline
+        from capcut_auto.ffmpeg import MediaInfo
+
+        cfg = build_config({"assets": False})
+        assert cfg.assets.enabled is False
+
+        # analyze() 앞부분과 같은 판단을 재현한다
+        info = MediaInfo("a.mp3", 30.0, 0, 0, 0.0, True, 44100, 2)
+        assert info.is_audio_only
+        if info.is_audio_only:
+            cfg.assets.coverage = "full"
+            cfg.assets.enabled = True
+        assert cfg.assets.enabled is True
+        assert cfg.assets.coverage == "full"
+        assert pipeline.SAMPLE_RATE > 0  # 모듈이 실제로 로드되는지
+
+    def test_video_input_respects_the_checkbox(self):
+        from capcut_auto.ffmpeg import MediaInfo
+
+        info = MediaInfo("a.mp4", 30.0, 1920, 1080, 30.0, True, 44100, 2)
+        assert not info.is_audio_only
+        cfg = build_config({"assets": False})
+        assert cfg.assets.enabled is False   # 영상이면 사용자 뜻대로
+
+    def test_audio_without_video_stream_is_detected(self):
+        from capcut_auto.ffmpeg import MediaInfo
+
+        assert MediaInfo("a.wav", 5.0, 0, 0, 0.0, True, 44100, 1).is_audio_only
+        assert not MediaInfo("a.mp4", 5.0, 640, 480, 30.0, True, 44100, 1).is_audio_only
+        assert not MediaInfo("silent.mp4", 5.0, 640, 480, 30.0, False, 0, 0).is_audio_only

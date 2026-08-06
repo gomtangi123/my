@@ -45,8 +45,12 @@ def analyze(
 
     if info.is_audio_only:
         # 영상이 없으니 이미지가 화면을 통째로 맡아야 한다. 띄엄띄엄 깔면
-        # 나머지가 까맣게 남으므로 전체 채우기로 고정한다.
+        # 나머지가 까맣게 남으므로 전체 채우기로 고정하고, 이미지 단계 자체를
+        # 끌 수 없게 한다 (꺼 두면 화면이 아예 안 만들어진다).
         cfg.assets.coverage = "full"
+        if not cfg.assets.enabled:
+            say("이미지가 화면이 되므로 '자료화면·이미지'를 자동으로 켭니다.")
+            cfg.assets.enabled = True
         say("영상 트랙이 없습니다 — 이미지로 화면을 채우는 슬라이드쇼로 만듭니다.")
 
     cuts: list[Cut] = []
@@ -136,6 +140,12 @@ def analyze(
     if cfg.assets.enabled and (plan.subtitles or cfg.assets.coverage == "full"):
         providers = build_providers(cfg.assets, say)
         if not providers:
+            if info.is_audio_only:
+                raise ValueError(
+                    "화면에 쓸 이미지를 못 찾았습니다. 「자료 이미지 넣기」 칸에 "
+                    "사진을 올린 뒤 다시 「편집 시작」을 눌러 주세요. "
+                    "(이미 올리셨다면 페이지를 새로고침한 뒤 다시 올려 주세요)"
+                )
             say("자료화면 건너뜀 — " + missing_key_hint().splitlines()[0])
         else:
             result = plan_assets(
@@ -150,8 +160,8 @@ def analyze(
             say(f"자료화면/이미지: {len(result.overlays)}개")
             if info.is_audio_only and not result.overlays:
                 raise ValueError(
-                    "음성만으로는 영상을 만들 수 없습니다. "
-                    "화면에 쓸 이미지를 한 장 이상 올려 주세요."
+                    "올려 주신 파일 중에 화면에 쓸 수 있는 이미지가 없습니다. "
+                    "jpg·png·gif·mp4 형식으로 한 장 이상 올려 주세요."
                 )
             for note in result.skipped[:5]:
                 say(f"  건너뜀 — {note}")

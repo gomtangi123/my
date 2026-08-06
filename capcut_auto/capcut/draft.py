@@ -193,7 +193,10 @@ def _add_slideshow_track(script: ScriptFile, plan: EditPlan) -> int:
     오버레이가 아니라 화면 그 자체이므로 크기 조절 없이 꽉 채운다.
     """
     if not plan.overlays:
-        raise TemplateError("화면에 쓸 이미지가 없습니다.")
+        raise TemplateError(
+            "화면에 쓸 이미지가 없습니다 — 음성만으로는 영상을 만들 수 없습니다. "
+            "「자료 이미지 넣기」에 사진을 올려 주세요."
+        )
 
     _ensure_track(script, TrackType.video, MAIN_TRACK, 0)
     added = 0

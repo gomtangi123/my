@@ -152,7 +152,12 @@
 
   <!-- 1-b. 내 소재 -->
   <div class="card">
-    <h2>자료 이미지 넣기 <span class="opt">선택</span></h2>
+    <h2>자료 이미지 넣기 <span class="opt" id="libRequired">선택</span></h2>
+    <div id="audioNote" class="note warn hide">
+      <b>음성 파일을 올리셨습니다.</b> 이미지가 화면이 되므로
+      <b>사진을 한 장 이상 올려야</b> 영상이 만들어집니다.
+      「자료화면·이미지」와 「처음부터 끝까지 채우기」는 자동으로 켰습니다.
+    </div>
     <p class="hint">직접 쓸 사진·GIF·영상을 올려두면, 말하는 내용의 키워드와
       맞는 자리에 알아서 얹어 줍니다. <b>파일 이름이 곧 검색어</b>입니다 —
       <code>서울_야경.jpg</code>, <code>커피.png</code> 처럼 지어 주세요.</p>
@@ -329,12 +334,28 @@ drop.ondrop = (e) => {
 };
 fileInput.onchange = () => { if (fileInput.files.length) choose(fileInput.files[0]); };
 
+function isAudioOnly(file) {
+  if (file.type.startsWith("audio/")) return true;
+  if (file.type.startsWith("video/")) return false;
+  return /\.(mp3|wav|m4a|aac|flac|ogg|opus|wma)$/i.test(file.name);
+}
+
 function choose(file) {
   picked = file;
   const mb = (file.size / 1048576).toFixed(1);
+  const audio = isAudioOnly(file);
   drop.innerHTML = `<div class="picked"><span class="pill">${escapeHtml(file.name)}</span>
-    <span>${mb} MB</span></div><span>다른 파일을 고르려면 다시 클릭</span>`;
+    <span>${mb} MB</span>${audio ? '<span class="pill">음성</span>' : ""}</div>
+    <span>다른 파일을 고르려면 다시 클릭</span>`;
   $("go").disabled = false;
+
+  // 음성만 올린 경우 이미지가 곧 화면이다. 관련 옵션을 알아서 켜 준다.
+  if (audio) {
+    $("o_assets").checked = true;
+    $("o_full_coverage").checked = true;
+  }
+  $("audioNote").classList.toggle("hide", !audio);
+  $("libRequired").textContent = audio ? "필수" : "선택";
 }
 
 /* ------------------------------------------------------------ 내 소재 */
