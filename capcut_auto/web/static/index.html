@@ -118,6 +118,15 @@
   .note.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
   .path { font: 12.5px ui-monospace, Menlo, monospace; color: var(--muted); word-break: break-all; }
   .hide { display: none !important; }
+  .drop.small { padding: 22px 16px; }
+  .opt { font-size: 11.5px; font-weight: 600; color: var(--muted);
+         border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; vertical-align: 2px; }
+  .hint { font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+  .hint code { background: var(--bg); padding: 1px 5px; border-radius: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chips span { font-size: 12.5px; background: var(--bg); border: 1px solid var(--line);
+                border-radius: 999px; padding: 3px 10px; }
+  .chips span.bad { color: var(--err); border-color: var(--err); }
   .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
   .tabs button { background: transparent; color: var(--muted); border: 1px solid transparent; padding: 5px 12px; font-size: 13.5px; }
   .tabs button.on { color: var(--ink); border-color: var(--line); background: var(--bg); }
@@ -137,6 +146,20 @@
       <span>또는 클릭해서 고르기 — mp4, mov, mkv, webm, m4a…</span>
     </div>
     <input id="file" type="file" accept="video/*,audio/*" class="hide">
+  </div>
+
+  <!-- 1-b. 내 소재 -->
+  <div class="card">
+    <h2>자료 이미지 넣기 <span class="opt">선택</span></h2>
+    <p class="hint">직접 쓸 사진·GIF·영상을 올려두면, 말하는 내용의 키워드와
+      맞는 자리에 알아서 얹어 줍니다. <b>파일 이름이 곧 검색어</b>입니다 —
+      <code>서울_야경.jpg</code>, <code>커피.png</code> 처럼 지어 주세요.</p>
+    <div id="libDrop" class="drop small">
+      <strong>이미지·GIF·영상을 여기에 끌어다 놓기</strong>
+      <span>여러 개 한 번에 · 또는 클릭해서 고르기</span>
+    </div>
+    <input id="libFile" type="file" accept="image/*,video/*" multiple class="hide">
+    <div id="libList" class="chips"></div>
   </div>
 
   <!-- 2. 옵션 -->
@@ -194,7 +217,13 @@
         <div class="field"><label>내 소재 폴더 (선택)</label>
           <input id="o_assets_folder" type="text" placeholder="/Users/me/broll"></div>
         <div class="field"><label>내 효과음 폴더 (선택)</label>
-          <input id="o_sfx_library" type="text" placeholder="/Users/me/sfx"></div>
+          <input id="o_sfx_library" type="text" placeholder="C:\\Users\\me\\sfx"></div>
+        <div class="field"><label>Pexels API 키 (무료, 자료화면)</label>
+          <input id="o_pexels" type="password" placeholder="키를 붙여넣으면 자동으로 씁니다"></div>
+        <div class="field"><label>Pixabay API 키 (무료)</label>
+          <input id="o_pixabay" type="password" placeholder="선택"></div>
+        <div class="field"><label>Giphy API 키 (무료, GIF)</label>
+          <input id="o_giphy" type="password" placeholder="선택"></div>
       </div>
       <div class="opts" style="margin-top:14px">
         <label class="check"><input type="checkbox" id="o_aggressive">
@@ -299,6 +328,39 @@ function choose(file) {
   $("go").disabled = false;
 }
 
+/* ------------------------------------------------------------ 내 소재 */
+let libraryId = null;
+const libDrop = $("libDrop"), libInput = $("libFile");
+libDrop.onclick = () => libInput.click();
+libDrop.ondragover = (e) => { e.preventDefault(); libDrop.classList.add("over"); };
+libDrop.ondragleave = () => libDrop.classList.remove("over");
+libDrop.ondrop = (e) => {
+  e.preventDefault(); libDrop.classList.remove("over");
+  addAssets(e.dataTransfer.files);
+};
+libInput.onchange = () => addAssets(libInput.files);
+
+async function addAssets(files) {
+  for (const file of files) {
+    const chip = document.createElement("span");
+    chip.textContent = `${file.name} 올리는 중…`;
+    $("libList").appendChild(chip);
+    try {
+      const url = "/api/library?name=" + encodeURIComponent(file.name) +
+                  (libraryId ? "&id=" + encodeURIComponent(libraryId) : "");
+      const res = await fetch(url, { method: "PUT", body: file });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      libraryId = data.library_id;
+      chip.textContent = file.name;
+    } catch (err) {
+      chip.textContent = `${file.name} — 실패`;
+      chip.className = "bad";
+      chip.title = err.message;
+    }
+  }
+}
+
 /* ---------------------------------------------------------------- 실행 */
 function options() {
   const num = (id) => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
@@ -320,6 +382,9 @@ function options() {
     prefer: $("o_prefer").value,
     assets_folder: $("o_assets_folder").value.trim(),
     sfx_library: $("o_sfx_library").value.trim(),
+    pexels_api_key: $("o_pexels").value.trim(),
+    pixabay_api_key: $("o_pixabay").value.trim(),
+    giphy_api_key: $("o_giphy").value.trim(),
     aggressive_fillers: $("o_aggressive").checked,
     retakes: $("o_retakes").checked,
     vertical: $("o_vertical").checked,
@@ -344,7 +409,12 @@ $("go").onclick = async () => {
   try {
     const res = await fetch("/api/jobs", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ upload_id: uploadId, options: options() }),
+      body: JSON.stringify({
+        upload_id: uploadId,
+        name: picked.name,
+        library_id: libraryId,
+        options: options(),
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.statusText);

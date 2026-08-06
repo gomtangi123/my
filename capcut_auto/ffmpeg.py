@@ -30,7 +30,14 @@ def require(tool: str = "ffmpeg") -> str:
 
 
 def run(args: list[str], *, capture: bool = True) -> subprocess.CompletedProcess:
-    proc = subprocess.run(args, capture_output=capture, text=True)
+    # 인코딩을 명시한다. 안 그러면 윈도우에서 로케일 코드페이지(한국어면 cp949)로
+    # 해석하는데 ffmpeg은 UTF-8로 뱉는다. 경로에 한글이 있으면 깨지거나 터진다.
+    proc = subprocess.run(
+        args,
+        capture_output=capture,
+        encoding="utf-8" if capture else None,
+        errors="replace" if capture else None,
+    )
     if proc.returncode != 0:
         tail = (proc.stderr or "")[-2000:] if capture else ""
         raise FFmpegFailed(f"{args[0]} 실패 (exit {proc.returncode})\n{tail}")

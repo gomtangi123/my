@@ -337,3 +337,45 @@ class TestOverwriteAndTemplate:
         assert "audio" not in tracks_by_type(content)
         assert len(tracks_by_type(content)["video"]) == 1
         assert len(tracks_by_type(content)["video"][0]["segments"]) == 3
+
+
+class TestDurationMismatch:
+    """ffprobe와 pycapcut(pymediainfo)이 재는 길이가 미세하게 다를 때.
+
+    실제로 163.003991초까지 자르려다 소재 길이(163.000000초)를 넘겨
+    pycapcut이 세그먼트를 거부한 적이 있다. 꼬리를 잘라 넘겨야 한다.
+    """
+
+    def test_span_past_material_end_is_clamped(self, tmp_path, media, info):
+        plan = build_plan(media, overlays=False, sfx=False, subs=False)
+        # 이미지 소재는 pycapcut에서 3시간짜리로 잡히므로, 그보다 뒤를 노린다
+        far = 3 * 60 * 60
+        plan.keeps = [Span(0.0, 5.0), Span(far - 1.0, far + 2.0)]
+        result = draft_mod.build(plan, info, Config(), drafts_root=tmp_path / "d")
+
+        main = tracks_by_type(load_draft(result))["video"][0]
+        limit_us = 3 * 60 * 60 * 1_000_000
+        for segment in main["segments"]:
+            source = segment["source_timerange"]
+            assert source["start"] + source["duration"] <= limit_us
+
+    def test_clips_stay_gapless_after_clamping(self, tmp_path, media, info):
+        plan = build_plan(media, overlays=False, sfx=False, subs=False)
+        far = 3 * 60 * 60
+        plan.keeps = [Span(0.0, 5.0), Span(far - 1.0, far + 2.0)]
+        result = draft_mod.build(plan, info, Config(), drafts_root=tmp_path / "d")
+
+        targets = [s["target_timerange"] for s in
+                   tracks_by_type(load_draft(result))["video"][0]["segments"]]
+        assert targets[0]["start"] == 0
+        for previous, current in zip(targets, targets[1:]):
+            assert current["start"] == previous["start"] + previous["duration"]
+
+    def test_span_entirely_past_the_end_is_dropped(self, tmp_path, media, info):
+        plan = build_plan(media, overlays=False, sfx=False, subs=False)
+        far = 3 * 60 * 60
+        plan.keeps = [Span(0.0, 5.0), Span(far + 10, far + 12)]
+        result = draft_mod.build(plan, info, Config(), drafts_root=tmp_path / "d")
+        assert result.clip_count == 2  # plan은 그대로지만
+        segments = tracks_by_type(load_draft(result))["video"][0]["segments"]
+        assert len(segments) == 1     # 실제로 들어간 건 하나

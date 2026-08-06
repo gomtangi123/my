@@ -152,15 +152,25 @@ def _add_main_track(script: ScriptFile, plan: EditPlan, cfg: Config) -> None:
     material = VideoMaterial(plan.source)
     script.add_material(material)
 
+    # ffprobe와 pycapcut(pymediainfo)이 재는 길이가 몇 밀리초씩 다를 수 있다.
+    # 컷 구간은 ffprobe 기준으로 잡혔으므로, 소재 밖으로 삐져나온 꼬리를
+    # 여기서 잘라 준다. 안 그러면 pycapcut이 세그먼트를 통째로 거부한다.
+    limit = material.duration / cc.SEC
+
     cursor = 0.0
     for span in plan.keeps:
+        start = min(span.start, limit)
+        end = min(span.end, limit)
+        duration = end - start
+        if duration < 1.0 / max(script.fps, 1):  # 한 프레임도 안 되면 버린다
+            continue
         segment = VideoSegment(
             material,
-            target_timerange=trange(cursor, span.duration),
-            source_timerange=trange(span.start, span.duration),
+            target_timerange=trange(cursor, duration),
+            source_timerange=trange(start, duration),
         )
         script.add_segment(segment, MAIN_TRACK)
-        cursor += span.duration
+        cursor += duration
 
 
 # ---------------------------------------------------------------- 오버레이 트랙

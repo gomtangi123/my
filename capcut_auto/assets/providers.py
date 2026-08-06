@@ -28,6 +28,7 @@ from .models import AssetRef
 USER_AGENT = "capcut-auto/0.1 (+https://github.com/)"
 TIMEOUT = 20
 
+TAGS_FILE = ".tags.json"
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic"}
 GIF_EXTS = {".gif"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".mkv"}
@@ -80,6 +81,7 @@ class LocalProvider(Provider):
         self._index: list[tuple[frozenset[str], AssetRef]] = []
         if not self.folder.is_dir():
             raise FileNotFoundError(f"소재 폴더가 없습니다: {self.folder}")
+        self._tag_overrides = self._load_tag_overrides()
         for path in sorted(self.folder.rglob("*")):
             if not path.is_file():
                 continue
@@ -101,6 +103,15 @@ class LocalProvider(Provider):
             )
             self._index.append((self._tags(path), ref))
 
+    def _load_tag_overrides(self) -> dict[str, str]:
+        """웹 UI로 올린 소재는 ASCII 이름으로 저장되므로 원래 이름을 옆에 적어 둔다."""
+        path = self.folder / TAGS_FILE
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+        return {k: str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
     def _tags(self, path: Path) -> frozenset[str]:
         parts: list[str] = []
         try:
@@ -110,6 +121,9 @@ class LocalProvider(Provider):
         for piece in relative.parts[:-1]:
             parts.extend(_SPLIT_RE.split(piece.lower()))
         parts.extend(_SPLIT_RE.split(path.stem.lower()))
+        original = self._tag_overrides.get(path.name)
+        if original:
+            parts.extend(_SPLIT_RE.split(original.lower()))
         return frozenset(p for p in parts if p)
 
     def search(self, query: str, kind: str, limit: int = 5) -> list[AssetRef]:

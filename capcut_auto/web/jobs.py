@@ -25,6 +25,9 @@ from ..config import Config
 # 브라우저가 한 번에 올릴 수 있는 최대 크기.
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024
 
+# 내 소재 폴더 안에 두는 "저장이름 -> 원래이름" 표. 키워드 매칭에 쓴다.
+TAGS_FILE = ".tags.json"
+
 State = str  # queued | running | done | error
 
 
@@ -70,8 +73,9 @@ class JobStore:
         self.work_root = Path(work_root)
         self.uploads_dir = self.work_root / "uploads"
         self.jobs_dir = self.work_root / "jobs"
-        self.uploads_dir.mkdir(parents=True, exist_ok=True)
-        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.library_dir = self.work_root / "library"
+        for folder in (self.uploads_dir, self.jobs_dir, self.library_dir):
+            folder.mkdir(parents=True, exist_ok=True)
         self._jobs: dict[str, Job] = {}
         self._condition = threading.Condition()
 
@@ -79,10 +83,9 @@ class JobStore:
 
     def upload_path(self, filename: str) -> tuple[str, Path]:
         upload_id = uuid.uuid4().hex[:12]
-        safe = _safe_name(filename)
         target = self.uploads_dir / upload_id
         target.mkdir(parents=True, exist_ok=True)
-        return upload_id, target / safe
+        return upload_id, target / _ascii_name(filename)
 
     def find_upload(self, upload_id: str) -> Path | None:
         folder = self.uploads_dir / _safe_component(upload_id)
@@ -91,14 +94,47 @@ class JobStore:
         files = [p for p in folder.iterdir() if p.is_file()]
         return files[0] if files else None
 
+    # ------------------------------------------------- 내 소재 라이브러리
+
+    def library_path(self, library_id: str | None, filename: str) -> tuple[str, Path]:
+        """사용자가 올린 자료 이미지/영상을 모아 두는 폴더."""
+        library_id = _safe_component(library_id) if library_id else uuid.uuid4().hex[:12]
+        folder = self.library_dir / library_id
+        folder.mkdir(parents=True, exist_ok=True)
+        return library_id, folder / _ascii_name(filename)
+
+    def library_folder(self, library_id: str) -> Path | None:
+        folder = self.library_dir / _safe_component(library_id)
+        return folder if folder.is_dir() else None
+
+    def remember_tags(self, folder: Path, stored_name: str, original: str) -> None:
+        """검색어로 쓸 원래 파일 이름을 따로 적어 둔다.
+
+        파일 자체는 ASCII 이름으로 저장하지만(경로에 한글이 있으면 윈도우에서
+        ffmpeg 호출이 깨진다) 키워드 매칭에는 "서울_야경.jpg" 쪽이 필요하다.
+        """
+        import json
+
+        path = Path(folder) / TAGS_FILE
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = {}
+        data[stored_name] = Path(original).stem
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8"
+        )
+
     # -------------------------------------------------------------- 작업
 
-    def create(self, source: Path, options: dict[str, Any]) -> Job:
+    def create(
+        self, source: Path, options: dict[str, Any], display_name: str | None = None
+    ) -> Job:
         job_id = uuid.uuid4().hex[:12]
         job = Job(
             id=job_id,
             source=Path(source),
-            display_name=Path(source).name,
+            display_name=display_name or Path(source).name,
             options=options,
             work_dir=self.jobs_dir / job_id,
         )
@@ -214,7 +250,7 @@ class JobStore:
             info,
             cfg,
             drafts_root=drafts_root,
-            project_name=Path(job.source).stem,
+            project_name=Path(job.display_name).stem or Path(job.source).stem,
             overwrite=True,
         )
         job.draft_path = str(result.path)
@@ -295,6 +331,10 @@ def build_config(options: dict[str, Any]) -> Config:
         "assets_per_minute": "assets.max_per_minute",
         "assets_folder": "assets.local_folder",
         "sfx_library": "sfx.library",
+        "pexels_api_key": "assets.pexels_api_key",
+        "pixabay_api_key": "assets.pixabay_api_key",
+        "giphy_api_key": "assets.giphy_api_key",
+        "tenor_api_key": "assets.tenor_api_key",
         "aggressive_fillers": "disfluency.aggressive_fillers",
         "retakes": "disfluency.remove_retakes",
         "burn_subtitles": "output.burn_subtitles",
@@ -348,6 +388,24 @@ def _safe_name(filename: str) -> str:
     banned = '<>:"|?*\0'
     cleaned = "".join("_" if ch in banned else ch for ch in cleaned)
     return cleaned.lstrip(".") or "video.mp4"
+
+
+def _ascii_name(filename: str) -> str:
+    """디스크에 저장할 이름은 ASCII로만 만든다.
+
+    한글 이름 그대로 두면 윈도우에서 ffprobe 호출이 빈손으로 돌아온다
+    (로케일 코드페이지와 UTF-8이 어긋나면서 출력이 통째로 사라진다).
+    보여줄 이름은 Job.display_name이 따로 들고 있으므로 사용자는 모른다.
+    """
+    stem = Path(_safe_name(filename))
+    suffix = "".join(ch for ch in stem.suffix if ch.isascii() and (ch.isalnum() or ch == "."))
+    ascii_stem = "".join(
+        ch if (ch.isascii() and (ch.isalnum() or ch in "-_")) else "_"
+        for ch in stem.stem
+    ).strip("_")
+    if not ascii_stem:
+        ascii_stem = "media-" + uuid.uuid4().hex[:8]
+    return ascii_stem[:60] + (suffix if len(suffix) > 1 else "")
 
 
 __all__ = ["Job", "JobStore", "build_config", "MAX_UPLOAD_BYTES"]

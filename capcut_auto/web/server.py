@@ -70,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         route, query = self._split()
-        if route != "/api/uploads":
+        if route not in ("/api/uploads", "/api/library"):
             return self._send_json({"error": "없는 경로입니다."}, HTTPStatus.NOT_FOUND)
 
         name = query.get("name", ["video.mp4"])[0]
@@ -86,7 +86,13 @@ class Handler(BaseHTTPRequestHandler):
                 HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
             )
 
-        upload_id, target = self.store.upload_path(name)
+        if route == "/api/library":
+            library_id, target = self.store.library_path(
+                query.get("id", [""])[0] or None, name
+            )
+        else:
+            library_id, target = None, self.store.upload_path(name)[1]
+            upload_id = target.parent.name
         remaining = length
         try:
             with target.open("wb") as fh:
@@ -100,12 +106,27 @@ class Handler(BaseHTTPRequestHandler):
             shutil.rmtree(target.parent, ignore_errors=True)
             return
         if remaining > 0:
-            shutil.rmtree(target.parent, ignore_errors=True)
+            target.unlink(missing_ok=True)
             return self._send_json(
                 {"error": "업로드가 중간에 끊겼습니다."}, HTTPStatus.BAD_REQUEST
             )
 
-        self._send_json({"upload_id": upload_id, "name": target.name, "size": length})
+        if library_id is not None:
+            # 파일은 ASCII 이름으로 저장했으니 원래 이름을 키워드로 따로 남긴다.
+            self.store.remember_tags(target.parent, target.name, name)
+            return self._send_json(
+                {
+                    "library_id": library_id,
+                    "name": name,
+                    "stored": target.name,
+                    "folder": str(target.parent),
+                    "size": length,
+                }
+            )
+
+        self._send_json(
+            {"upload_id": upload_id, "name": name, "stored": target.name, "size": length}
+        )
 
     def do_POST(self) -> None:
         route, _query = self._split()
@@ -124,7 +145,17 @@ class Handler(BaseHTTPRequestHandler):
             options = payload.get("options") or {}
             if not isinstance(options, dict):
                 return self._send_json({"error": "옵션 형식 오류"}, HTTPStatus.BAD_REQUEST)
-            job = self.store.create(source, options)
+
+            # 브라우저에서 올린 소재 폴더가 있으면 그걸 소재 라이브러리로 쓴다.
+            library_id = str(payload.get("library_id") or "")
+            if library_id and not options.get("assets_folder"):
+                folder = self.store.library_folder(library_id)
+                if folder is not None:
+                    options["assets_folder"] = str(folder)
+
+            job = self.store.create(
+                source, options, display_name=str(payload.get("name") or "") or None
+            )
             self.store.start(job)
             return self._send_json({"job_id": job.id}, HTTPStatus.ACCEPTED)
 

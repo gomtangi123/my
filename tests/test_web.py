@@ -172,7 +172,25 @@ class TestUpload:
         saved = store.find_upload(data["upload_id"])
         assert saved is not None
         assert saved.read_bytes() == payload
-        assert saved.name == "영상.mp4"
+
+    def test_korean_name_is_stored_as_ascii(self, server):
+        """윈도우에서 경로에 한글이 있으면 ffprobe가 빈손으로 돌아온다.
+
+        디스크에는 ASCII로 저장하고, 원래 이름은 응답으로 돌려준다.
+        """
+        base, store, _srv = server
+        _status, data = put_bytes(
+            base + "/api/uploads?name=%EA%B8%88%EC%86%90%EC%9D%B4.mp4", b"xx"
+        )
+        saved = store.find_upload(data["upload_id"])
+        assert saved.name.isascii()
+        assert saved.suffix == ".mp4"
+        assert data["name"] == "금손이.mp4"   # 사용자에게 보여줄 이름은 그대로
+
+    def test_ascii_name_is_kept_as_is(self, server):
+        base, store, _srv = server
+        _status, data = put_bytes(base + "/api/uploads?name=my-clip.mp4", b"xx")
+        assert store.find_upload(data["upload_id"]).name == "my-clip.mp4"
 
     def test_empty_upload_rejected(self, server):
         base, _store, _srv = server
@@ -190,6 +208,45 @@ class TestUpload:
     def test_traversal_in_upload_id_is_rejected(self, server):
         _base, store, _srv = server
         assert store.find_upload("../../..") is None
+
+
+class TestLibraryUpload:
+    def test_stores_file_and_remembers_korean_keyword(self, server):
+        base, store, _srv = server
+        _status, data = put_bytes(
+            base + "/api/library?name=%EC%84%9C%EC%9A%B8_%EC%95%BC%EA%B2%BD.jpg", b"img"
+        )
+        assert data["library_id"]
+        folder = store.library_folder(data["library_id"])
+        assert folder is not None
+
+        stored = folder / data["stored"]
+        assert stored.exists() and stored.name.isascii()
+
+        tags = json.loads((folder / ".tags.json").read_text(encoding="utf-8"))
+        assert tags[data["stored"]] == "서울_야경"
+
+    def test_second_file_joins_the_same_library(self, server):
+        base, store, _srv = server
+        _s, first = put_bytes(base + "/api/library?name=a.jpg", b"1")
+        _s, second = put_bytes(
+            base + f"/api/library?name=b.jpg&id={first['library_id']}", b"2"
+        )
+        assert second["library_id"] == first["library_id"]
+        folder = store.library_folder(first["library_id"])
+        names = {p.name for p in folder.iterdir() if p.suffix == ".jpg"}
+        assert names == {"a.jpg", "b.jpg"}
+
+    def test_local_provider_finds_it_by_korean_keyword(self, server, tmp_path):
+        from capcut_auto.assets.providers import LocalProvider
+
+        base, store, _srv = server
+        _s, data = put_bytes(
+            base + "/api/library?name=%EC%84%9C%EC%9A%B8_%EC%95%BC%EA%B2%BD.jpg", b"img"
+        )
+        folder = store.library_folder(data["library_id"])
+        hits = LocalProvider(folder=folder).search("서울", "image")
+        assert len(hits) == 1
 
 
 class TestJobLifecycle:
