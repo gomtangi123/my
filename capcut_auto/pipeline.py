@@ -127,7 +127,7 @@ def analyze(
         say(f"효과음: {len(plan.sfx)}개")
 
     # 7) 자료화면 / 이미지 / GIF
-    if cfg.assets.enabled and plan.subtitles:
+    if cfg.assets.enabled and (plan.subtitles or cfg.assets.coverage == "full"):
         providers = build_providers(cfg.assets, say)
         if not providers:
             say("자료화면 건너뜀 — " + missing_key_hint().splitlines()[0])

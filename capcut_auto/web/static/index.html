@@ -160,6 +160,13 @@
     </div>
     <input id="libFile" type="file" accept="image/*,video/*" multiple class="hide">
     <div id="libList" class="chips"></div>
+    <div class="opts" style="margin-top:14px">
+      <label class="check"><input type="checkbox" id="o_full_coverage">
+        <span><b>처음부터 끝까지 채우기</b>
+          <em>빈 구간 없이 영상 전체를 이미지로 덮습니다. 개수가 모자라면 돌려 씁니다.</em></span></label>
+      <div class="field"><label>이미지 크기 (1 = 화면 꽉 채움)</label>
+        <input id="o_image_scale" type="number" step="0.05" min="0.2" max="1" value="0.62"></div>
+    </div>
   </div>
 
   <!-- 2. 옵션 -->
@@ -380,6 +387,8 @@ function options() {
     sfx_per_minute: num("o_sfx_per_minute"),
     assets_per_minute: num("o_assets_per_minute"),
     prefer: $("o_prefer").value,
+    full_coverage: $("o_full_coverage").checked,
+    image_scale: parseFloat($("o_image_scale").value) || null,
     assets_folder: $("o_assets_folder").value.trim(),
     sfx_library: $("o_sfx_library").value.trim(),
     pexels_api_key: $("o_pexels").value.trim(),

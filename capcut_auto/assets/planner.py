@@ -47,10 +47,21 @@ def plan_assets(
     progress=None,
 ) -> AssetPlanResult:
     say = progress or (lambda _m: None)
-    if not cfg.enabled or not providers or not plan.subtitles:
+    if not cfg.enabled or not providers:
         return AssetPlanResult([], [])
 
     query_map = merge_map(dict(cfg.query_map) if cfg.query_map else None)
+
+    # 전체 채우기는 자막이 없어도 된다. 자막은 그림이 바뀌는 지점과 검색어를
+    # 정하는 데만 쓰이고, 없으면 일정한 길이로 끊어서 채운다.
+    if cfg.coverage == "full":
+        return _plan_full_coverage(
+            plan, timemap, cfg, providers, cache_dir, query_map, say
+        )
+
+    if not plan.subtitles:
+        return AssetPlanResult([], [])
+
     slots = _score_slots(plan, timemap, cfg, query_map)
     chosen = _select(slots, cfg, timemap.output_duration)
     budget = _budget(cfg, timemap.output_duration, len(chosen))
@@ -103,6 +114,176 @@ def plan_assets(
 
     overlays.sort(key=lambda o: o.start)
     return AssetPlanResult(overlays, skipped)
+
+
+# --------------------------------------------------------- 전체 채우기 모드
+
+
+def _plan_full_coverage(
+    plan: EditPlan,
+    timemap: TimeMap,
+    cfg: AssetsConfig,
+    providers: list[Provider],
+    cache_dir: Path,
+    query_map: dict,
+    say,
+) -> AssetPlanResult:
+    """처음부터 끝까지 소재로 덮는다. 빈 구간을 남기지 않는다.
+
+    자막 줄 경계에서 그림이 바뀌도록 맞추되, 소재가 짧으면(영상·GIF) 거기서
+    끊고 바로 다음 소재를 이어 붙인다. 소재 개수가 모자라면 돌려 쓴다.
+    """
+    total = timemap.output_duration
+    boundaries = _boundaries(plan, cfg, total)
+
+    overlays: list[Overlay] = []
+    skipped: list[str] = []
+    searched: dict[tuple[str, str], list[AssetRef]] = {}
+    fetched: set[tuple[str, str]] = set()
+    pool = _preload(providers, cfg, cache_dir, fetched, skipped)
+    if pool:
+        say(f"내 소재 {len(pool)}개를 전체 구간에 돌려 씁니다")
+    cursor = 0.0
+    guard = 0
+
+    while cursor < total - 0.05 and guard < 2000:
+        guard += 1
+        slot_end = min(_next_boundary(boundaries, cursor, cfg), total)
+        slot = _slot_at(plan, cursor, slot_end, cfg, query_map)
+
+        asset = _next_asset(
+            slot, cfg, providers, cache_dir, searched, fetched, pool,
+            turn=len(overlays),
+            last=overlays[-1].asset if overlays else None,
+            skipped=skipped, say=say,
+        )
+        if asset is None:
+            break  # 쓸 수 있는 소재가 하나도 없다
+
+        end = slot_end
+        if asset.kind in ("video", "gif") and asset.duration > 0:
+            end = min(end, cursor + asset.duration)
+        if end - cursor < 0.3:  # 너무 짧게 스치는 건 보기 사납다
+            end = min(cursor + 0.3, total)
+
+        overlays.append(
+            Overlay(
+                start=cursor,
+                end=end,
+                asset=asset,
+                keyword=slot.keyword,
+                score=slot.score,
+                scale=_scale_for(asset.kind, cfg),
+                position_y=_position_for(asset.kind, cfg),
+                reason="coverage",
+            )
+        )
+        cursor = end
+
+    say(f"전체 채우기: {len(overlays)}개 구간, 소재 {len(pool)}종")
+    if not overlays:
+        skipped.append("쓸 수 있는 소재가 없어 전체 채우기를 못 했습니다.")
+    return AssetPlanResult(overlays, skipped)
+
+
+def _boundaries(plan: EditPlan, cfg: AssetsConfig, total: float) -> list[float]:
+    """그림이 바뀌기 좋은 지점들. 자막 줄 시작에 맞춘다."""
+    marks = sorted({line.start for line in plan.subtitles if 0 < line.start < total})
+    return marks + [total]
+
+
+def _next_boundary(boundaries: list[float], cursor: float, cfg: AssetsConfig) -> float:
+    """`cursor`에서 시작해 적당한 길이가 되는 다음 경계."""
+    earliest = cursor + cfg.min_duration
+    latest = cursor + cfg.max_duration
+    for mark in boundaries:
+        if mark >= earliest:
+            return min(mark, latest)
+    return latest
+
+
+def _slot_at(
+    plan: EditPlan, start: float, end: float, cfg: AssetsConfig, query_map: dict
+) -> Slot:
+    """그 구간에서 말하는 내용의 대표 키워드를 뽑는다."""
+    words = [
+        w
+        for line in plan.subtitles
+        if line.start < end and line.end > start
+        for w in line.words
+    ]
+    ranked = kw.rank(words, use_konlpy=cfg.use_konlpy) if words else []
+    if ranked:
+        best = max(ranked, key=lambda k: k.score)
+        query = query_map.get(best.text) or query_map.get(best.text.lower()) or best.text
+        return Slot(start, end, best.text, query, best.score, "coverage")
+    return Slot(start, end, "", "", 0.0, "coverage")
+
+
+def _preload(
+    providers: list[Provider],
+    cfg: AssetsConfig,
+    cache_dir: Path,
+    fetched: set,
+    skipped: list[str],
+) -> list[Asset]:
+    """내 소재 폴더에 있는 것들을 미리 다 받아 둔다.
+
+    전체 채우기에서는 올려 둔 이미지를 하나도 남김없이 쓰는 게 자연스럽다.
+    키워드가 안 맞는 구간도 이 목록에서 돌려 쓰면 빈틈이 안 생긴다.
+    """
+    pool: list[Asset] = []
+    for provider in providers:
+        for ref in provider.inventory():
+            try:
+                asset = cache.fetch(ref, cache_dir, query=ref.source_id)
+            except ProviderError as exc:
+                skipped.append(f"{ref.source_id}: {exc}")
+                continue
+            fetched.add((ref.source, ref.source_id))
+            pool.append(asset)
+    return pool
+
+
+def _next_asset(
+    slot: Slot,
+    cfg: AssetsConfig,
+    providers: list[Provider],
+    cache_dir: Path,
+    searched: dict,
+    fetched: set,
+    pool: list[Asset],
+    turn: int,
+    last: Asset | None,
+    skipped: list[str],
+    say,
+) -> Asset | None:
+    """키워드에 맞는 새 소재를 먼저, 없으면 가진 것 중에서 돌려 쓴다."""
+    if slot.query:
+        ref = _first_available(
+            slot, _pick_kind(slot, cfg), cfg, providers, fetched, searched, skipped, say
+        )
+        if ref is not None:
+            try:
+                asset = cache.fetch(ref, cache_dir, query=slot.query)
+            except ProviderError as exc:
+                skipped.append(f"{slot.query}: {exc}")
+            else:
+                fetched.add((ref.source, ref.source_id))
+                pool.append(asset)
+                return asset
+
+    if not pool:
+        return None
+
+    # 돌려 쓰기 — 목록을 순서대로 한 바퀴씩 돈다.
+    # 앞에 나온 것과 겹치면 한 칸 밀되, 후보에서 아예 빼면 안 된다.
+    # (빼고 나머지에서 고르면 3개일 때 두 개만 번갈아 나오고 하나가 죽는다)
+    index = turn % len(pool)
+    asset = pool[index]
+    if last is not None and asset.path == last.path and len(pool) > 1:
+        asset = pool[(index + 1) % len(pool)]
+    return asset
 
 
 # ------------------------------------------------------------------ 자리 고르기

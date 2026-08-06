@@ -343,6 +343,7 @@ def build_config(options: dict[str, Any]) -> Config:
         "pixabay_api_key": "assets.pixabay_api_key",
         "giphy_api_key": "assets.giphy_api_key",
         "tenor_api_key": "assets.tenor_api_key",
+        "image_scale": "assets.image_scale",
         "aggressive_fillers": "disfluency.aggressive_fillers",
         "retakes": "disfluency.remove_retakes",
         "burn_subtitles": "output.burn_subtitles",
@@ -352,6 +353,9 @@ def build_config(options: dict[str, Any]) -> Config:
             continue
         for path in (target,) if isinstance(target, str) else target:
             overrides[path] = options[key]
+
+    if options.get("full_coverage"):
+        overrides["assets.coverage"] = "full"
 
     if options.get("prefer"):
         first = options["prefer"]

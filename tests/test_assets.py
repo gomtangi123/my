@@ -359,3 +359,142 @@ class TestAssetPlanning:
         )
         starts = [o.start for o in result.overlays]
         assert starts == sorted(starts)
+
+
+class TestFullCoverage:
+    """처음부터 끝까지 이미지로 덮는 모드."""
+
+    @pytest.fixture
+    def talky_plan(self):
+        specs = [
+            (f"주제{i} 이야기입니다", i * 4.0, i * 4.0 + 3.0,
+             ((f"주제{i}", i * 4.0, i * 4.0 + 3.0),))
+            for i in range(10)
+        ]
+        return make_plan(specs, total=40.0)
+
+    def cfg(self, **kwargs):
+        return AssetsConfig(coverage="full", **kwargs)
+
+    def test_covers_the_whole_timeline_without_gaps(self, tmp_path, asset_file, talky_plan):
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(),
+            [FakeProvider(asset_file)], tmp_path / "c",
+        )
+        overlays = sorted(result.overlays, key=lambda o: o.start)
+        assert overlays[0].start == pytest.approx(0.0)
+        assert overlays[-1].end == pytest.approx(40.0, abs=0.35)
+        for a, b in zip(overlays, overlays[1:]):
+            assert b.start == pytest.approx(a.end)  # 빈틈 없음
+
+    def test_uses_uploaded_assets_even_without_keyword_matches(self, tmp_path, talky_plan):
+        """내 소재 폴더만 있고 키워드가 하나도 안 맞아도 전부 덮어야 한다."""
+        from capcut_auto.assets.providers import LocalProvider
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir()
+        for name in ("aaa.png", "bbb.png", "ccc.png"):
+            Image.new("RGB", (320, 180), (5, 5, 5)).save(folder / name)
+
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        assert result.overlays
+        assert result.overlays[-1].end == pytest.approx(40.0, abs=0.35)
+        # 올린 3개가 모두 쓰였는지
+        used = {o.asset.path.name for o in result.overlays}
+        assert used == {"aaa.png", "bbb.png", "ccc.png"}
+
+    def test_does_not_repeat_the_same_asset_back_to_back(self, tmp_path, talky_plan):
+        from capcut_auto.assets.providers import LocalProvider
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir()
+        for name in ("a.png", "b.png"):
+            Image.new("RGB", (320, 180), (5, 5, 5)).save(folder / name)
+
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        paths = [o.asset.path for o in sorted(result.overlays, key=lambda o: o.start)]
+        assert all(a != b for a, b in zip(paths, paths[1:]))
+
+    def test_each_piece_respects_max_duration(self, tmp_path, asset_file, talky_plan):
+        cfg = self.cfg(max_duration=3.0)
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), cfg,
+            [FakeProvider(asset_file)], tmp_path / "c",
+        )
+        assert all(o.duration <= 3.0 + 1e-6 for o in result.overlays)
+
+    def test_video_asset_shorter_than_slot_is_not_stretched(self, tmp_path, asset_file, talky_plan):
+        """8초짜리 영상 소재를 10초 구간에 억지로 늘리지 않는다."""
+        provider = FakeProvider(asset_file, kinds=("video",))
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(max_duration=30.0),
+            [provider], tmp_path / "c",
+        )
+        for overlay in result.overlays:
+            if overlay.asset.kind == "video" and overlay.asset.duration > 0:
+                assert overlay.duration <= overlay.asset.duration + 1e-6
+
+    def test_no_providers_yields_nothing(self, tmp_path, talky_plan):
+        result = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(), [], tmp_path / "c"
+        )
+        assert result.overlays == []
+
+    def test_spots_mode_is_still_sparse(self, tmp_path, asset_file, talky_plan):
+        sparse = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), AssetsConfig(),
+            [FakeProvider(asset_file)], tmp_path / "c1",
+        )
+        full = plan_assets(
+            talky_plan, TimeMap(talky_plan.keeps), self.cfg(),
+            [FakeProvider(asset_file)], tmp_path / "c2",
+        )
+        assert len(full.overlays) > len(sparse.overlays)
+
+    def test_works_without_subtitles_using_my_own_images(self, tmp_path):
+        """자막을 꺼도 내가 올린 이미지로 영상 전체를 덮을 수 있어야 한다."""
+        from capcut_auto.assets.providers import LocalProvider
+        from PIL import Image
+
+        folder = tmp_path / "lib"
+        folder.mkdir()
+        for name in ("a.png", "b.png", "c.png"):
+            Image.new("RGB", (320, 180), (5, 5, 5)).save(folder / name)
+
+        plan = make_plan([], total=30.0)
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(coverage="full"),
+            [LocalProvider(folder=folder)], tmp_path / "c",
+        )
+        overlays = sorted(result.overlays, key=lambda o: o.start)
+        assert overlays
+        assert overlays[0].start == pytest.approx(0.0)
+        assert overlays[-1].end == pytest.approx(30.0, abs=0.35)
+        for a, b in zip(overlays, overlays[1:]):
+            assert b.start == pytest.approx(a.end)
+
+    def test_remote_provider_alone_cannot_fill_without_keywords(self, tmp_path, asset_file):
+        """자막이 없으면 스톡 사이트에 던질 검색어가 없다 — 이건 어쩔 수 없다."""
+        plan = make_plan([], total=30.0)
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(coverage="full"),
+            [FakeProvider(asset_file)], tmp_path / "c",
+        )
+        assert result.overlays == []
+        assert any("소재가 없어" in note for note in result.skipped)
+
+    def test_spots_mode_still_needs_subtitles(self, tmp_path, asset_file):
+        plan = make_plan([], total=30.0)
+        result = plan_assets(
+            plan, TimeMap(plan.keeps), AssetsConfig(),
+            [FakeProvider(asset_file)], tmp_path / "c",
+        )
+        assert result.overlays == []

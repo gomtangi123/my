@@ -198,6 +198,10 @@ class AssetsConfig:
     # 어떤 종류를 우선할지. video = 자료화면(B-roll)
     prefer: tuple[str, ...] = ("video", "image")
     gif_for_reactions: bool = True
+    # 소재를 어떻게 깔지.
+    #   "spots" — 키워드가 맞는 자리에만 띄엄띄엄 (기본)
+    #   "full"  — 처음부터 끝까지 빈틈없이. 소재가 모자라면 돌려 쓴다.
+    coverage: str = "spots"
     # 제공자당 후보 개수
     candidates: int = 8
     # 한 소재가 화면에 머무는 시간

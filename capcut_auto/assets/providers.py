@@ -62,6 +62,14 @@ class Provider:
     def supports(self, kind: str) -> bool:
         return True
 
+    def inventory(self, limit: int = 200) -> list[AssetRef]:
+        """가진 소재를 검색 없이 전부 돌려준다.
+
+        전체 채우기 모드에서 "올려 둔 것들로 처음부터 끝까지 덮기"에 쓴다.
+        온라인 제공자는 '가진 것'이라는 개념이 없으므로 빈 목록.
+        """
+        return []
+
 
 # --------------------------------------------------------------------- 로컬
 
@@ -125,6 +133,9 @@ class LocalProvider(Provider):
         if original:
             parts.extend(_SPLIT_RE.split(original.lower()))
         return frozenset(p for p in parts if p)
+
+    def inventory(self, limit: int = 200) -> list[AssetRef]:
+        return [ref for _tags, ref in self._index[:limit]]
 
     def search(self, query: str, kind: str, limit: int = 5) -> list[AssetRef]:
         terms = {t for t in _SPLIT_RE.split(query.lower()) if t}
