@@ -22,7 +22,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from . import chart as chart_mod, colors, compose, fonts, layout as layout_mod, photos as photos_mod
+from . import (
+    chart as chart_mod,
+    colors,
+    compose,
+    fonts,
+    layout as layout_mod,
+    photos as photos_mod,
+    poster as poster_mod,
+)
 from .models import Card, Deck, Size
 from .theme import Layout, Theme
 
@@ -60,6 +68,12 @@ def _metrics(path: str, spacing: float):
     return make
 
 
+def _brand_height(style: Style) -> float:
+    """맨 위 브랜드 줄이 먹는 높이. 내용은 여기 아래에서 시작한다."""
+    size = _px(style, style.layout.brand)
+    return _px(style, style.layout.margin) * 0.72 + size + size * 0.9
+
+
 def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
     """(배경 이미지, 글이 시작할 y, 글이 쓸 수 있는 높이).
 
@@ -71,8 +85,8 @@ def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
     lay = style.layout
     width, height = style.size.width, style.size.height
     margin = _px(style, lay.margin)
-    footer_h = _px(style, lay.footer) * 3
-    plain_top = margin
+    footer_h = _px(style, lay.footer) * 2
+    plain_top = _brand_height(style) + margin * 0.5
     plain_h = height - margin - footer_h - plain_top
 
     if photo is None or mode == photos_mod.NONE:
@@ -90,10 +104,13 @@ def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
         alpha = compose.scrim_alpha(filled, (0, 0, width, height), fg, bg)
         return compose.apply_scrim(filled, bg, alpha), plain_top, plain_h
 
+    # 띠 사진은 브랜드 줄 아래에서 시작한다. 그 위에 겹치면 계정명이
+    # 사진에 묻힌다 — 글씨 대비를 사진마다 다시 재느니 자리를 비켜 준다.
+    band_top = int(_brand_height(style))
     band_h = max(1, int(round(height * lay.band)))
     canvas = Image.new("RGB", (width, height), bg)
-    canvas.paste(compose.cover_crop(source, width, band_h), (0, 0))
-    top = band_h + margin
+    canvas.paste(compose.cover_crop(source, width, band_h), (0, band_top))
+    top = band_top + band_h + margin
     return canvas, top, height - margin - footer_h - top
 
 
@@ -114,6 +131,8 @@ class Style:
     source: str = ""
     # "auto" / "full" / "band" / "off". auto면 카드 종류가 정한다.
     photo_mode: str = "auto"
+    # 표지 알약 버튼의 기본 문구. `@버튼` 으로 카드마다 바꿀 수 있다.
+    save_cta: str = "나중에 보려면 저장"
 
 
 def _px(style: Style, ratio: float) -> int:
@@ -125,15 +144,144 @@ def _sizes(style: Style, largest: float, smallest: float) -> list[int]:
     return layout_mod.ladder(_px(style, largest), _px(style, smallest))
 
 
+def _font_at(style: Style):
+    """poster / chart 가 함께 쓰는 글꼴 공급자."""
+
+    def font_at(size, bold: bool = False):
+        return _font(style.bold if bold else style.regular, max(8, int(size)))
+
+    return font_at
+
+
+def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: str):
+    """표지 — 글을 아래에 모으고 사진은 위를 살린다.
+
+    기하를 **먼저** 다 계산한 뒤에 배경을 만든다. 글이 어디서 시작하는지
+    알아야 장막을 딱 거기까지만 씌울 수 있기 때문이다. 장막 범위를 상수로
+    박아 두면 말머리처럼 위쪽에 놓이는 줄이 범위 밖으로 삐져나가 묻힌다.
+    """
+    Image, ImageDraw, _ = _require_pillow()
+    lay = style.layout
+    width, height = style.size.width, style.size.height
+    bg, fg = style.theme.colors("cover")
+    accent, muted = style.theme.marks("cover")
+    ink_accent = style.theme.text_accent("cover")
+    margin = _px(style, lay.margin)
+    px = lambda ratio: _px(style, ratio)  # noqa: E731
+    box_w = width - margin * 2
+    gap = px(lay.gap)
+
+    # ---------------------------------------------------------- 1) 기하
+    cursor = float(height - margin)
+    cursor -= poster_mod.dots_height(style, total, px)
+
+    cta = card.cta or (style.save_cta if total > 1 else "")
+    pill_h = poster_mod.pill_height(cta, style, px)
+    pill_bottom = cursor
+    if pill_h:
+        cursor -= pill_h + gap
+
+    body_fit = body_bottom = None
+    if card.body.strip():
+        body_fit = layout_mod.fit(
+            card.body.strip(),
+            _metrics(style.regular, lay.body_line_spacing),
+            box_w,
+            height * 0.22,
+            _sizes(style, lay.body_max * 0.78, lay.body_min),
+        )
+        body_bottom = cursor
+        cursor -= body_fit.height + gap * 0.7
+
+    title_fit = title_bottom = None
+    fills: list[str] = []
+    if card.title.strip():
+        parts = poster_mod.split_title(card.title)
+        title_fit = layout_mod.fit(
+            "\n".join(parts),
+            _metrics(style.bold, lay.title_line_spacing),
+            box_w,
+            height * 0.42,
+            _sizes(style, lay.cover_title_max, lay.cover_title_min),
+        )
+        measure, _ = _metrics(style.bold, lay.title_line_spacing)(title_fit.size)
+        # 첫 덩어리는 글자색, `|` 뒤는 강조색.
+        for i, part in enumerate(parts):
+            fills += [fg if i == 0 else ink_accent] * len(
+                layout_mod.wrap(part, measure, box_w)
+            )
+        title_bottom = cursor
+        cursor -= title_fit.height + gap * 0.45
+
+    kicker_size = px(lay.kicker)
+    kicker_baseline = None
+    if card.kicker.strip():
+        kicker_baseline = cursor
+        cursor -= kicker_size * 1.4
+
+    block_top = max(0.0, cursor - gap * 0.5)
+
+    # ---------------------------------------------------------- 2) 배경
+    image = Image.new("RGB", (width, height), bg)
+    if photo is not None and mode != photos_mod.NONE:
+        try:
+            source = Image.open(photo.path)
+        except (OSError, ValueError):
+            source = None
+        if source is not None:
+            filled = compose.cover_crop(source, width, height)
+            veil = poster_mod.veil_for(fg, bg)
+            hold = min(0.62, max(0.14, block_top / height))
+            peak = compose.scrim_alpha(
+                filled, (0, int(block_top), width, height), fg, veil
+            )
+            image = compose.gradient_scrim(
+                filled, veil, peak, start=max(0.02, hold - 0.32), hold=hold
+            )
+
+    # ---------------------------------------------------------- 3) 그리기
+    draw = ImageDraw.Draw(image)
+    font_at = _font_at(style)
+    poster_mod.draw_brand_bar(draw, style, page, fg, muted, accent, font_at, px)
+    poster_mod.draw_dots(draw, style, card.index, total, fg, muted, px)
+
+    if pill_h:
+        poster_mod.draw_pill(
+            draw, cta, style, pill_bottom, colors.mix(bg, fg, 0.26), fg, font_at, px
+        )
+    if body_fit is not None:
+        poster_mod.draw_block_bottom(
+            draw, body_fit, _font(style.regular, body_fit.size), margin, body_bottom, fg
+        )
+    if title_fit is not None:
+        poster_mod.draw_block_bottom(
+            draw, title_fit, _font(style.bold, title_fit.size), margin, title_bottom, fills
+        )
+    if kicker_baseline is not None:
+        draw.text(
+            (margin, kicker_baseline),
+            card.kicker.strip(),
+            font=_font(style.bold, kicker_size),
+            fill=ink_accent,
+            anchor="ld",
+        )
+    return image
+
+
 def render_card(
     card: Card,
     style: Style,
     page: str = "",
     is_last: bool = False,
     photo=None,
+    total: int = 0,
 ) -> "object":
     """카드 한 장을 Pillow Image로. 저장은 호출부가 한다."""
     Image, ImageDraw, _ = _require_pillow()
+    if card.kind == "cover":
+        return _render_cover(
+            card, style, page, total, photo, photos_mod.mode_for(card, style.photo_mode)
+        )
     lay = style.layout
     width, height = style.size.width, style.size.height
     bg, fg = style.theme.colors(card.kind)
@@ -275,41 +423,20 @@ def _draw_chart(draw, card: Card, style: Style, left, top, width, height) -> Non
 def _draw_footer(
     draw, style: Style, card: Card, page: str, is_last: bool = False
 ) -> None:
+    """맨 위 브랜드 줄과, 마지막 장의 출처 한 줄."""
     lay = style.layout
     accent, muted = style.theme.marks(card.kind)
-    margin = _px(style, lay.margin)
-    font = _font(style.regular, _px(style, lay.footer))
-    baseline = style.size.height - margin
-
-    # 표지의 페이지 번호는 군더더기다. 대신 넘기라는 신호를 준다.
-    if card.kind == "cover":
-        if style.swipe_hint and page:
-            draw.text(
-                (style.size.width - margin, baseline),
-                "넘겨보세요 →",
-                font=font,
-                fill=accent,
-                anchor="rs",
-            )
-    elif page:
-        draw.text(
-            (style.size.width - margin, baseline),
-            page,
-            font=font,
-            fill=muted,
-            anchor="rs",
-        )
-
-    if style.handle:
-        draw.text(
-            (margin, baseline), style.handle, font=font, fill=muted, anchor="ls"
-        )
+    _, fg = style.theme.colors(card.kind)
+    poster_mod.draw_brand_bar(
+        draw, style, page, fg, muted, accent, _font_at(style),
+        lambda ratio: _px(style, ratio),
+    )
 
     # 출처는 마지막 장에만. 매 장에 넣으면 그냥 지저분하다.
     if is_last and style.source:
         small = _font(style.regular, _px(style, lay.source))
         draw.text(
-            (style.size.width / 2, baseline - _px(style, lay.footer) * 1.9),
+            (style.size.width / 2, style.size.height - _px(style, lay.margin) * 0.75),
             style.source,
             font=small,
             fill=muted,
@@ -344,6 +471,7 @@ def render_deck(
             page,
             is_last=card.index == total - 1,
             photo=(photos or {}).get(card.index),
+            total=total,
         )
         path = out_dir / f"{card.index + 1:02d}.png"
         image.save(path, "PNG", optimize=True)

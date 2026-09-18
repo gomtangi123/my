@@ -234,10 +234,11 @@ class TestRenderWithPhoto:
         )
         assert plain.tobytes() != withphoto.tobytes()
 
-    def test_band_mode_puts_the_photo_on_top(self, style, asset):
+    def test_band_mode_puts_the_photo_below_the_brand_bar(self, style, asset):
         from dataclasses import replace
 
         from capcut_auto.cardnews import render_card
+        from capcut_auto.cardnews.render import _brand_height
 
         image = render_card(
             Card(title="제목", body="본문", kind="body"),
@@ -245,10 +246,13 @@ class TestRenderWithPhoto:
             "2/3",
             photo=asset,
         )
+        top = int(_brand_height(style))
         band_h = int(round(style.size.height * style.layout.band))
-        # 띠 안쪽은 사진이고, 띠 바로 아래는 테마 바탕색이어야 한다.
-        assert image.getpixel((540, band_h // 2)) != colors.parse(style.theme.bg)
-        assert image.getpixel((540, band_h + 5)) == colors.parse(style.theme.bg)
+        surface = colors.parse(style.theme.bg)
+        # 브랜드 줄 자리는 바탕색, 그 아래가 사진, 띠가 끝나면 다시 바탕색.
+        assert image.getpixel((540, max(0, top - 6))) == surface
+        assert image.getpixel((540, top + band_h // 2)) != surface
+        assert image.getpixel((540, top + band_h + 5)) == surface
 
     def test_a_broken_photo_still_renders(self, style, tmp_path):
         from dataclasses import replace

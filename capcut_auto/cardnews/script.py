@@ -45,6 +45,9 @@ _KINDS = {
 # `@사진 <검색어>` — 검색어를 비우면 카드 글에서 알아서 뽑는다.
 _IMAGE = frozenset({"사진", "photo", "image"})
 _NO_IMAGE = frozenset({"사진없음", "nophoto", "noimage"})
+# `@말머리 <글>` — 표지 제목 위 한 줄. `@버튼 <글>` — 저장 유도 버튼.
+_KICKER = frozenset({"말머리", "kicker"})
+_CTA = frozenset({"버튼", "cta"})
 
 
 def split_blocks(text: str) -> list[list[str]]:
@@ -70,12 +73,17 @@ def _trim(lines: list[str]) -> list[str]:
 
 def parse_block(lines: list[str], index: int) -> Card:
     kind, image_query, image_off, unit = "", "", False, ""
+    kicker, cta = "", ""
     while lines and (m := _DIRECTIVE_RE.match(lines[0])):
         name, argument = m.group(1), (m.group(2) or "").strip()
         if name in _NO_IMAGE:
             image_off = True
         elif name in _IMAGE:
             image_query = argument
+        elif name in _KICKER:
+            kicker = argument
+        elif name in _CTA:
+            cta = argument
         elif name in _KINDS:
             kind = _KINDS[name]
             unit = argument  # `@막대 만원` 처럼 단위를 함께 줄 수 있다
@@ -103,6 +111,8 @@ def parse_block(lines: list[str], index: int) -> Card:
         image_query=image_query,
         image_off=image_off,
         unit=unit,
+        kicker=kicker,
+        cta=cta,
     )
 
 

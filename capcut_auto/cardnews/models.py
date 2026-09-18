@@ -20,6 +20,10 @@ class Card:
     image_off: bool = False
     # @막대 뒤에 준 단위 ("만원"). 값 뒤에 붙는다.
     unit: str = ""
+    # @말머리 — 표지 제목 위에 강조색으로 붙는 한 줄.
+    kicker: str = ""
+    # @버튼 — 표지 아래 알약 버튼 문구. 표지는 안 주면 기본값이 붙는다.
+    cta: str = ""
 
     @property
     def is_empty(self) -> bool:

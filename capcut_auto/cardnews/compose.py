@@ -104,10 +104,49 @@ def apply_scrim(image, veil: str, alpha: float):
     return Image.blend(image.convert("RGB"), veil_layer, max(0.0, min(1.0, alpha)))
 
 
+def gradient_scrim(
+    image, veil: str, peak: float, start: float = 0.22, hold: float = 0.50
+):
+    """위는 그대로 두고 아래로 갈수록 진해지다, `hold` 부터는 `peak` 를 유지한다.
+
+    카드 전체를 고르게 덮으면 사진이 통째로 탁해진다. 글은 아래쪽에만 있으니
+    거기만 가리면 위쪽 사진은 살아 있고 글도 읽힌다.
+
+    `hold` 가 핵심이다. 맨 밑에서만 `peak` 에 닿게 만들면 정작 제목이 있는
+    중간 높이는 거의 안 덮여서 글씨가 사진에 묻힌다. 글이 시작하는 높이에서
+    이미 `peak` 에 도달해 있어야 한다.
+    """
+    from PIL import Image  # type: ignore
+
+    width, height = image.size
+    peak = max(0.0, min(1.0, peak))
+    begin = max(0, min(height - 1, int(height * start)))
+    full = max(begin + 1, min(height, int(height * hold)))
+    span = full - begin
+
+    mask = Image.new("L", (1, height))
+    pixels = mask.load()
+    for y in range(height):
+        if y <= begin:
+            value = 0.0
+        elif y >= full:
+            value = peak
+        else:
+            # 직선으로 올리면 경계가 띠처럼 보여서 살짝 휘어 올린다.
+            value = peak * (((y - begin) / span) ** 1.5)
+        pixels[0, y] = int(round(255 * value))
+
+    veil_layer = Image.new("RGB", (width, height), veil)
+    return Image.composite(
+        veil_layer, image.convert("RGB"), mask.resize((width, height))
+    )
+
+
 __all__ = [
     "cover_crop",
     "extreme_luminance",
     "scrim_alpha",
     "apply_scrim",
+    "gradient_scrim",
     "ALPHAS",
 ]

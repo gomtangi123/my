@@ -26,6 +26,8 @@ class Theme:
     # 표지 전용. 비우면 본문과 같은 색을 쓴다.
     cover_bg: str = ""
     cover_fg: str = ""
+    # 표지 배경이 곧 강조색인 테마는 표지에서 쓸 강조색을 따로 준다.
+    cover_accent: str = ""
 
     def colors(self, kind: str) -> tuple[str, str]:
         """카드 종류에 맞는 (배경, 글자) 색."""
@@ -40,9 +42,16 @@ class Theme:
         같은 색이 되어 버린다. 대비를 재서 모자라면 글자색 쪽으로 물러선다.
         """
         bg, fg = self.colors(kind)
-        accent = colors.readable(self.accent, bg, fg, minimum=3.0)
+        base = self.cover_accent if (kind == "cover" and self.cover_accent) else self.accent
+        accent = colors.readable(base, bg, fg, minimum=3.0)
         muted = colors.readable(self.muted, bg, colors.mix(fg, bg, 0.40), minimum=2.5)
         return accent, muted
+
+    def text_accent(self, kind: str) -> str:
+        """강조색을 **글씨로** 쓸 때. 마크보다 높은 대비(4.5:1)가 필요하다."""
+        bg, fg = self.colors(kind)
+        accent, _ = self.marks(kind)
+        return colors.reach_contrast(accent, bg, fg, minimum=4.5)
 
 
 @dataclass(frozen=True)
@@ -73,6 +82,14 @@ class Layout:
     source: float = 0.019
     # 띠 사진이 먹는 카드 높이 비율 (짧은 변이 아니라 세로 기준)
     band: float = 0.42
+    # 맨 위 브랜드 줄 (계정명 · 쪽 번호)
+    brand: float = 0.026
+    # 표지 제목 위의 말머리 한 줄
+    kicker: float = 0.033
+    # 저장 유도 알약 버튼
+    pill: float = 0.029
+    # 캐러셀 점 지름
+    dots: float = 0.010
 
 
 THEMES: dict[str, Theme] = {
@@ -100,6 +117,8 @@ THEMES: dict[str, Theme] = {
         muted="#6E7480",
         cover_bg="#1B4DFF",
         cover_fg="#FFFFFF",
+        # 표지 배경이 파랑이라 파란 강조색은 안 보인다. 노랑으로 뒤집는다.
+        cover_accent="#FFD400",
     ),
     "paper": Theme(
         name="paper",

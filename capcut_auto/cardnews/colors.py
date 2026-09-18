@@ -81,6 +81,25 @@ def de_emphasis(fg: str, bg: str, minimum: float = 3.0) -> str:
     return mix(fg, bg, _RECEDE[-1])
 
 
+def reach_contrast(
+    color: str, bg: str, toward: str, minimum: float = 4.5, steps: int = 10
+) -> str:
+    """색을 `toward` 쪽으로 밀어 배경과의 대비를 `minimum` 까지 끌어올린다.
+
+    강조색을 **글씨로** 쓸 때 필요하다. 마크(막대·밑줄)는 3:1 이면 되지만
+    글씨는 4.5:1 이라, 표지처럼 배경이 뒤집히는 자리에서는 같은 강조색이
+    마크로는 통과하고 글씨로는 안 읽히는 일이 생긴다. 색상은 유지한 채
+    밝기만 옮기려고 글자색 쪽으로 섞는다.
+    """
+    if contrast(color, bg) >= minimum:
+        return color
+    for i in range(1, steps + 1):
+        candidate = mix(color, toward, i / steps * 0.9)
+        if contrast(candidate, bg) >= minimum:
+            return candidate
+    return toward
+
+
 def readable(color: str, bg: str, fallback: str, minimum: float) -> str:
     """배경 위에서 대비가 모자라면 대체색으로 물러선다."""
     return color if contrast(color, bg) >= minimum else fallback
@@ -96,5 +115,6 @@ __all__ = [
     "mix",
     "readable",
     "de_emphasis",
+    "reach_contrast",
     "RGB",
 ]
