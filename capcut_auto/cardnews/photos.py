@@ -29,6 +29,9 @@ DEFAULT_MODES: dict[str, str] = {
     "body": BAND,
     "stat": NONE,
     "outro": NONE,
+    # 표·그래프 위에 사진을 깔면 둘 다 안 읽힌다.
+    "bars": NONE,
+    "table": NONE,
 }
 
 # 검색어에 쓸 키워드 개수. 너무 많이 넣으면 스톡 검색이 0건이 된다.

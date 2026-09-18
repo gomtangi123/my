@@ -18,6 +18,8 @@ class Card:
     image_query: str = ""
     # @사진없음 — 이 카드만 사진을 안 쓴다.
     image_off: bool = False
+    # @막대 뒤에 준 단위 ("만원"). 값 뒤에 붙는다.
+    unit: str = ""
 
     @property
     def is_empty(self) -> bool:

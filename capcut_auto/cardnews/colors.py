@@ -63,6 +63,24 @@ def mix(a: str, b: str, ratio: float) -> str:
     return to_hex(tuple(x + (y - x) * t for x, y in zip(ra, rb)))
 
 
+# 회색 막대를 만들 때 글자색을 배경 쪽으로 얼마나 밀지. 뒤로 갈수록 진해진다.
+_RECEDE = (0.72, 0.66, 0.60, 0.54, 0.48, 0.42, 0.36, 0.30)
+
+
+def de_emphasis(fg: str, bg: str, minimum: float = 3.0) -> str:
+    """강조하지 않는 마크(회색 막대)의 색.
+
+    글자색을 배경 쪽으로 최대한 밀되, 배경과의 대비가 `minimum` 밑으로는
+    안 내려가게 한다. 도형은 3:1 이 기준이다 — 그보다 옅으면 막대가 있는지
+    조차 안 보인다. 테마마다 배경이 달라서 비율을 상수로 박을 수 없다.
+    """
+    for ratio in _RECEDE:
+        candidate = mix(fg, bg, ratio)
+        if contrast(candidate, bg) >= minimum:
+            return candidate
+    return mix(fg, bg, _RECEDE[-1])
+
+
 def readable(color: str, bg: str, fallback: str, minimum: float) -> str:
     """배경 위에서 대비가 모자라면 대체색으로 물러선다."""
     return color if contrast(color, bg) >= minimum else fallback
@@ -77,5 +95,6 @@ __all__ = [
     "contrast_lum",
     "mix",
     "readable",
+    "de_emphasis",
     "RGB",
 ]

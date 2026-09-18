@@ -36,6 +36,10 @@ _KINDS = {
     "outro": "outro",
     "숫자": "stat",
     "stat": "stat",
+    "막대": "bars",
+    "bars": "bars",
+    "표": "table",
+    "table": "table",
 }
 
 # `@사진 <검색어>` — 검색어를 비우면 카드 글에서 알아서 뽑는다.
@@ -65,7 +69,7 @@ def _trim(lines: list[str]) -> list[str]:
 
 
 def parse_block(lines: list[str], index: int) -> Card:
-    kind, image_query, image_off = "", "", False
+    kind, image_query, image_off, unit = "", "", False, ""
     while lines and (m := _DIRECTIVE_RE.match(lines[0])):
         name, argument = m.group(1), (m.group(2) or "").strip()
         if name in _NO_IMAGE:
@@ -74,6 +78,7 @@ def parse_block(lines: list[str], index: int) -> Card:
             image_query = argument
         elif name in _KINDS:
             kind = _KINDS[name]
+            unit = argument  # `@막대 만원` 처럼 단위를 함께 줄 수 있다
         else:
             break  # 모르는 지시어는 본문으로 취급한다 — 조용히 삼키면 곤란하다
         lines = _trim(lines[1:])
@@ -97,6 +102,7 @@ def parse_block(lines: list[str], index: int) -> Card:
         index=index,
         image_query=image_query,
         image_off=image_off,
+        unit=unit,
     )
 
 

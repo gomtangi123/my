@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from . import compose, fonts, layout as layout_mod, photos as photos_mod
+from . import chart as chart_mod, colors, compose, fonts, layout as layout_mod, photos as photos_mod
 from .models import Card, Deck, Size
 from .theme import Layout, Theme
 
@@ -148,7 +148,11 @@ def render_card(
     margin = _px(style, lay.margin)
     box_w = width - margin * 2
 
-    centered = card.kind in ("cover", "outro", "stat") and mode != photos_mod.BAND
+    is_chart = card.kind in ("bars", "table")
+    centered = (
+        card.kind in ("cover", "outro", "stat")
+        and mode != photos_mod.BAND
+    )
     title_range = {
         "cover": (lay.cover_title_max, lay.cover_title_min),
         "stat": (lay.stat_max, lay.stat_min),
@@ -170,7 +174,7 @@ def render_card(
                 True,
             )
         )
-    if card.body.strip():
+    if card.body.strip() and not is_chart:
         used = blocks[0][0].height if blocks else 0.0
         remaining = box_h - used - (_px(style, lay.gap) if blocks else 0)
         blocks.append(
@@ -224,8 +228,48 @@ def render_card(
         if i < len(blocks) - 1:
             y += gap
 
+    if is_chart:
+        _draw_chart(draw, card, style, margin, y + gap, box_w, top + box_h - (y + gap))
+
     _draw_footer(draw, style, card, page, is_last)
     return image
+
+
+def _draw_chart(draw, card: Card, style: Style, left, top, width, height) -> None:
+    """표 / 막대 카드의 알맹이. 제목을 그리고 남은 자리에 들어간다."""
+    if height <= 0:
+        return
+    bg, fg = style.theme.colors(card.kind)
+    accent, muted = style.theme.marks(card.kind)
+    box = (int(left), int(top), int(width), int(height))
+
+    def font_at(size: int, bold: bool = False):
+        return _font(style.bold if bold else style.regular, max(8, int(size)))
+
+    if card.kind == "bars":
+        chart_mod.draw_bars(
+            draw,
+            chart_mod.parse_bars(card.body, card.unit),
+            box,
+            font_at,
+            ink=fg,
+            muted=muted,
+            accent=accent,
+            grey=colors.de_emphasis(fg, bg),
+            unit=min(style.size.width, style.size.height),
+        )
+    else:
+        chart_mod.draw_table(
+            draw,
+            chart_mod.parse_table(card.body),
+            box,
+            font_at,
+            ink=fg,
+            muted=muted,
+            accent=accent,
+            # 칸 구분선은 바탕에서 한 단계만 벗어난 실선.
+            rule=colors.mix(fg, bg, 0.86),
+        )
 
 
 def _draw_footer(
