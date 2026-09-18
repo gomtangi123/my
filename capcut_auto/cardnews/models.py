@@ -1,0 +1,71 @@
+"""카드뉴스 자료구조."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Card:
+    """카드 한 장. 제목만 있어도, 본문만 있어도 된다."""
+
+    title: str = ""
+    body: str = ""
+    # "cover"(표지) / "body"(본문) / "outro"(마무리)
+    kind: str = "body"
+    index: int = 0
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.title.strip() and not self.body.strip()
+
+
+@dataclass
+class Deck:
+    cards: list[Card] = field(default_factory=list)
+
+    def __len__(self) -> int:
+        return len(self.cards)
+
+    def __iter__(self):
+        return iter(self.cards)
+
+
+@dataclass
+class Size:
+    """출력 규격. 인스타는 세로 4:5가 피드에서 가장 넓게 잡힌다."""
+
+    width: int
+    height: int
+
+
+SIZES: dict[str, Size] = {
+    # 피드 세로 — 같은 조회수에서 화면을 제일 많이 먹는다. 기본값.
+    "post": Size(1080, 1350),
+    "square": Size(1080, 1080),
+    # 스토리 / 릴스 커버
+    "story": Size(1080, 1920),
+}
+
+
+def resolve_size(name: str) -> Size:
+    """이름(post/square/story) 또는 `1080x1350` 형식을 받는다."""
+    key = name.strip().lower()
+    if key in SIZES:
+        return SIZES[key]
+    if "x" in key:
+        w, _, h = key.partition("x")
+        try:
+            size = Size(int(w), int(h))
+        except ValueError:
+            pass
+        else:
+            if size.width > 0 and size.height > 0:
+                return size
+    raise ValueError(
+        f"모르는 규격입니다: {name} "
+        f"(가능: {', '.join(SIZES)} 또는 1080x1350 형식)"
+    )
+
+
+__all__ = ["Card", "Deck", "Size", "SIZES", "resolve_size"]

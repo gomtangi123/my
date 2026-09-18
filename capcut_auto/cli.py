@@ -9,7 +9,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from . import pipeline, render as render_mod, subtitles
+from . import cardnews, pipeline, render as render_mod, subtitles
 from .assets import cache as asset_cache
 from .capcut import draft as draft_mod, paths as capcut_paths
 from .config import Config
@@ -116,6 +116,30 @@ def _build_parser() -> argparse.ArgumentParser:
     drafts = sub.add_parser("drafts", help="CapCut 드래프트 목록 (템플릿 고를 때)")
     drafts.add_argument("--drafts-dir", type=Path)
     drafts.set_defaults(handler=cmd_drafts, command="drafts")
+
+    cards = sub.add_parser(
+        "cardnews", help="대본 → 인스타 카드뉴스 이미지 세트 (캐러셀)"
+    )
+    cards.add_argument("script", type=Path, help="대본 파일 (.txt / .md)")
+    cards.add_argument(
+        "-o", "--out", type=Path, help="저장 폴더 (기본: ./capcut-out/cardnews)"
+    )
+    cards.add_argument(
+        "-t",
+        "--theme",
+        default=cardnews.DEFAULT_THEME,
+        help=f"테마: {' / '.join(cardnews.THEMES)} (기본 {cardnews.DEFAULT_THEME})",
+    )
+    cards.add_argument(
+        "-s",
+        "--size",
+        default="post",
+        help="규격: post(1080x1350) / square / story, 또는 1080x1350 형식",
+    )
+    cards.add_argument("--font", help="글꼴 파일 경로 (.ttf/.otf). 기본은 자동 탐색")
+    cards.add_argument("--handle", default="", help="카드 아래에 박을 계정명 (예: @myshop)")
+    cards.add_argument("-q", "--quiet", action="store_true", help="진행 로그 숨기기")
+    cards.set_defaults(handler=cmd_cardnews, command="cardnews")
 
     web = sub.add_parser("web", help="브라우저에서 쓰는 웹 UI 띄우기")
     web.add_argument("-p", "--port", type=int, default=8765, help="포트 (기본 8765)")
@@ -522,6 +546,35 @@ def cmd_drafts(args) -> int:
     print(f"{root}\n")
     for d in drafts:
         print(f"  {d.name}          --template {d.name}")
+    return 0
+
+
+def cmd_cardnews(args) -> int:
+    text = args.script.read_text(encoding="utf-8")
+    deck = cardnews.parse(text)
+
+    try:
+        style = cardnews.build_style(
+            cardnews.resolve_theme(args.theme),
+            cardnews.resolve_size(args.size),
+            font=args.font,
+            handle=args.handle,
+        )
+    except cardnews.FontMissing as exc:
+        print(f"\n오류: {exc}", file=sys.stderr)
+        return 2
+
+    out_dir = args.out or Path("capcut-out") / "cardnews"
+    say = (lambda _m: None) if args.quiet else print
+    say(f"카드 {len(deck)}장 → {out_dir}")
+    paths = cardnews.render_deck(deck, out_dir, style, progress=say)
+
+    say(
+        f"\n완료: {len(paths)}장\n"
+        f"  인스타 캐러셀에 이 순서 그대로 올리면 됩니다.\n"
+        f"  같은 폴더로 릴스까지 뽑으려면:\n"
+        f"    {PROG} edit 대본음성.mp3 --assets-folder {out_dir}"
+    )
     return 0
 
 

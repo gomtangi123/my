@@ -22,6 +22,8 @@ whisper = ["faster-whisper>=1.0"]
 yaml = ["pyyaml>=6.0"]
 # 한국어 형태소 분석으로 키워드 추출 정확도 올리기 (JVM 필요)
 konlpy = ["konlpy>=0.6"]
+# 카드뉴스 이미지 그리기
+cardnews = ["pillow>=10"]
 dev = ["pytest>=8", "pillow>=10"]
 all = [
     "faster-whisper>=1.0",
