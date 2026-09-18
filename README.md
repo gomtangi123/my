@@ -44,10 +44,23 @@ cd my
 ./scripts/setup.sh --web
 ```
 
-**Windows** — cmd / Anaconda Prompt / PowerShell 어디서든
+**Windows** — 터미널이 낯설다면 이 방법이 제일 쉽습니다.
+
+1. [코드 내려받기](https://github.com/gomtangi123/my/archive/refs/heads/claude/optimistic-tesla-g2wdc0.zip)
+2. 압축을 풀고 폴더를 `C:\` 아래로 옮기기
+3. 폴더 안의 **`카드뉴스 만들기.bat` 더블클릭** — 첫 실행이면 알아서 설치까지 합니다
+
+파이썬이 없으면 창이 어디서 받는지 알려 줍니다. 끝나면 카드가 담긴 폴더가
+저절로 열립니다. 웹 UI를 쓰려면 `시작하기.bat` 을 더블클릭하세요.
+
+> 배치 파일(`.bat`)은 **ASCII + CRLF** 로만 둡니다. 한국어 윈도우 cmd 는
+> 배치 파일을 CP949 로 읽어서, 파일 안에 UTF-8 한글이 있으면 깨진 글자를
+> 명령어로 실행해 버립니다. `.gitattributes` 로 줄바꿈도 고정해 뒀습니다.
+
+명령줄이 편하다면:
 
 ```
-git clone -b claude/capcut-automation-tool-x5031c https://github.com/gomtangi123/my.git
+git clone -b claude/optimistic-tesla-g2wdc0 https://github.com/gomtangi123/my.git
 cd my
 scripts\setup.bat --web
 ```

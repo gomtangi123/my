@@ -36,15 +36,38 @@ if errorlevel 1 (
   if errorlevel 1 goto install_failed
 )
 
+REM ---- which script to render (drag a .txt onto this file) -------
+set "SCRIPT=%~1"
+if "%SCRIPT%"=="" set "SCRIPT=examples\sample.txt"
+if not exist "%SCRIPT%" goto no_script
+
 echo.
-echo   Starting the web UI. Your browser will open shortly.
-echo   Keep this window open. Press Ctrl+C here to stop.
+echo   Rendering cards from: %SCRIPT%
 echo.
-%PY% -m capcut_auto web --open
+%PY% -m capcut_auto cardnews "%SCRIPT%" -o cardnews-out --handle "@myaccount"
+if errorlevel 1 goto render_failed
+
 echo.
-echo   Server stopped.
+echo   Done. Opening the output folder...
+start "" "%CD%\cardnews-out"
+echo.
 pause
 exit /b 0
+
+:no_script
+echo.
+echo   [!] Script file not found: %SCRIPT%
+echo   Drag a .txt script onto this file, or keep the examples folder.
+echo.
+pause
+exit /b 1
+
+:render_failed
+echo.
+echo   [!] Rendering failed. Copy the messages above and send them.
+echo.
+pause
+exit /b 1
 
 :no_python
 echo.

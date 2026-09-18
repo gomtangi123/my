@@ -1,0 +1,2 @@
+# 윈도우 배치 파일은 CRLF 여야 cmd 파서가 줄을 제대로 끊는다.
+*.bat text eol=crlf
