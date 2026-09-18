@@ -156,12 +156,32 @@ class TestCoverRender:
 
         assert render_card(self.card(), style, "1/4", total=4).size == (1080, 1350)
 
-    def test_accent_line_uses_the_text_accent(self, style):
+    def test_accent_line_uses_the_text_accent_on_a_flat_cover(self, style):
+        from dataclasses import replace
+
         from capcut_auto.cardnews import render_card
 
-        image = render_card(self.card(), style, "1/4", total=4)
-        wanted = bytes(colors.parse(style.theme.text_accent("cover")))
+        # 배경이 단색이면 테마가 정한 글씨용 강조색이 그대로 나온다.
+        flat = replace(style, backdrop="off")
+        image = render_card(self.card(), flat, "1/4", total=4)
+        wanted = bytes(colors.parse(flat.theme.text_accent("cover")))
         assert image.tobytes().count(wanted) > 0
+
+    def test_accent_stays_distinct_over_a_backdrop(self, style):
+        from dataclasses import replace
+
+        from capcut_auto.cardnews import render_card
+
+        # 배경을 깔면 강조색이 실제 배경에 맞춰 밝아진다. 그래도 글자색과
+        # 같은 색으로 주저앉으면 `|` 로 나눈 의미가 없어진다.
+        image = render_card(
+            self.card(), replace(style, backdrop="mesh"), "1/4", total=4
+        )
+        _, fg = style.theme.colors("cover")
+        raw = image.tobytes()
+        assert raw.count(bytes(colors.parse(fg))) > 0
+        # 흰 글씨만 있는 게 아니라 그 사이 색이 실제로 쓰였는지.
+        assert len({raw[i : i + 3] for i in range(0, len(raw) - 2, 3)}) > 50
 
     def test_dots_change_with_the_index(self, style):
         from capcut_auto.cardnews import render_card

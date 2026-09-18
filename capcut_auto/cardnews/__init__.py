@@ -4,6 +4,7 @@
 한 번에 나온다 — 캐러셀은 저장을 먹고 릴스는 도달을 먹는다.
 """
 
+from .backdrop import DEFAULT_STYLE as DEFAULT_BACKDROP, STYLES as BACKDROPS
 from .fonts import FontMissing
 from .models import Card, Deck, Size, SIZES, resolve_size
 from .render import PillowMissing, Style, build_style, render_card, render_deck
@@ -29,6 +30,8 @@ __all__ = [
     "render_deck",
     "PillowMissing",
     "FontMissing",
+    "BACKDROPS",
+    "DEFAULT_BACKDROP",
     "collect_photos",
     "photo_credits",
 ]

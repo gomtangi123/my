@@ -23,6 +23,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from . import (
+    backdrop as backdrop_mod,
     chart as chart_mod,
     colors,
     compose,
@@ -90,7 +91,15 @@ def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
     plain_h = height - margin - footer_h - plain_top
 
     if photo is None or mode == photos_mod.NONE:
-        return Image.new("RGB", (width, height), bg), plain_top, plain_h
+        made = None
+        if card.backdrop:
+            accent, _ = style.theme.marks(card.kind)
+            made = _backdrop_for(card, style, width, height, bg, fg, accent)
+        return (
+            made or Image.new("RGB", (width, height), bg),
+            plain_top,
+            plain_h,
+        )
 
     try:
         source = Image.open(photo.path)
@@ -133,6 +142,8 @@ class Style:
     photo_mode: str = "auto"
     # 표지 알약 버튼의 기본 문구. `@버튼` 으로 카드마다 바꿀 수 있다.
     save_cta: str = "나중에 보려면 저장"
+    # 사진이 없을 때 표지에 깔 배경. "off" 면 단색으로 둔다.
+    backdrop: str = backdrop_mod.DEFAULT_STYLE
 
 
 def _px(style: Style, ratio: float) -> int:
@@ -151,6 +162,25 @@ def _font_at(style: Style):
         return _font(style.bold if bold else style.regular, max(8, int(size)))
 
     return font_at
+
+
+def _backdrop_for(card: Card, style: Style, width, height, bg, fg, accent):
+    """`@배경` 또는 기본 설정으로 배경을 만든다. 꺼져 있으면 None."""
+    name = card.backdrop or style.backdrop
+    if not name or name == "off":
+        return None
+    try:
+        return backdrop_mod.make(
+            name,
+            width,
+            height,
+            bg,
+            fg,
+            accent,
+            seed=backdrop_mod.seed_of(f"{card.title}\n{card.body}\n{card.kicker}"),
+        )
+    except ValueError:
+        return None
 
 
 def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: str):
@@ -220,27 +250,33 @@ def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: 
 
     # ---------------------------------------------------------- 2) 배경
     image = Image.new("RGB", (width, height), bg)
+    source = None
     if photo is not None and mode != photos_mod.NONE:
         try:
             source = Image.open(photo.path)
         except (OSError, ValueError):
             source = None
-        if source is not None:
-            filled = compose.cover_crop(source, width, height)
-            veil = poster_mod.veil_for(fg, bg)
-            hold = min(0.62, max(0.14, block_top / height))
-            peak = compose.scrim_alpha(
-                filled, (0, int(block_top), width, height), fg, veil
-            )
-            image = compose.gradient_scrim(
-                filled, veil, peak, start=max(0.02, hold - 0.32), hold=hold
-            )
-            # 장막은 글자색(보통 흰색) 기준으로 잡았다. 강조색은 중간 밝기라
-            # 같은 배경에서 훨씬 불리하므로, 실제로 잰 배경에 맞춰 다시 민다.
-            worst = compose.extreme_luminance(
-                image, (0, int(block_top), width, height), bright=True
-            )
-            ink_accent = colors.reach_contrast_lum(ink_accent, worst, fg, minimum=4.5)
+    if source is None:
+        # 사진이 없으면 테마 색으로 배경을 만들어 쓴다. 남의 사진을 변형해
+        # 쓰는 것과 달리 출처 문제가 없고, 덱이 한 벌로 보인다.
+        source = _backdrop_for(card, style, width, height, bg, fg, accent)
+    if source is not None:
+        # 사진이든 만들어 쓴 배경이든 여기서부터는 똑같이 다룬다.
+        filled = compose.cover_crop(source, width, height)
+        veil = poster_mod.veil_for(fg, bg)
+        hold = min(0.62, max(0.14, block_top / height))
+        peak = compose.scrim_alpha(
+            filled, (0, int(block_top), width, height), fg, veil
+        )
+        image = compose.gradient_scrim(
+            filled, veil, peak, start=max(0.02, hold - 0.32), hold=hold
+        )
+        # 장막은 글자색(보통 흰색) 기준으로 잡았다. 강조색은 중간 밝기라
+        # 같은 배경에서 훨씬 불리하므로, 실제로 잰 배경에 맞춰 다시 민다.
+        worst = compose.extreme_luminance(
+            image, (0, int(block_top), width, height), bright=True
+        )
+        ink_accent = colors.reach_contrast_lum(ink_accent, worst, fg, minimum=4.5)
 
     # ---------------------------------------------------------- 3) 그리기
     draw = ImageDraw.Draw(image)
@@ -492,6 +528,7 @@ def build_style(
     handle: str = "",
     source: str = "",
     photo_mode: str = "auto",
+    backdrop: str = backdrop_mod.DEFAULT_STYLE,
     layout: Layout | None = None,
 ) -> Style:
     regular, bold = fonts.find(font)
@@ -504,6 +541,7 @@ def build_style(
         handle=handle,
         source=source,
         photo_mode=photo_mode,
+        backdrop=backdrop,
     )
 
 

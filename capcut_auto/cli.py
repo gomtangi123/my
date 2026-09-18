@@ -149,6 +149,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--assets-folder", help="내 사진 폴더 (API 키 불필요, 파일 이름이 태그)"
     )
     cards.add_argument(
+        "--backdrop",
+        default=cardnews.DEFAULT_BACKDROP,
+        choices=list(cardnews.BACKDROPS) + ["off"],
+        help="사진이 없을 때 표지에 깔 배경. 테마 색으로 만들어 쓰므로 출처 문제가 없습니다.",
+    )
+    cards.add_argument(
         "--source",
         default="",
         help="이미지 출처 등. 마지막 장 아래에만 한 줄로 들어갑니다.",
@@ -598,6 +604,7 @@ def cmd_cardnews(args) -> int:
             handle=args.handle,
             source=args.source,
             photo_mode=args.photos,
+            backdrop=args.backdrop,
         )
     except cardnews.FontMissing as exc:
         print(f"\n오류: {exc}", file=sys.stderr)

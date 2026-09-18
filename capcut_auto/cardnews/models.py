@@ -24,6 +24,8 @@ class Card:
     kicker: str = ""
     # @버튼 — 표지 아래 알약 버튼 문구. 표지는 안 주면 기본값이 붙는다.
     cta: str = ""
+    # @배경 — 사진 대신 만들어 쓸 배경 (mesh/grid/rays/dots).
+    backdrop: str = ""
 
     @property
     def is_empty(self) -> bool:
