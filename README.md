@@ -447,7 +447,8 @@ capcut-auto cardnews 대본.txt -o ./cards
 capcut-auto edit 내레이션.mp3 --assets-folder ./cards
 ```
 
-> 이미지 그리기에는 Pillow가 필요합니다 — `pip install "capcut-auto[cardnews]"`.
+> 카드뉴스는 **CapCut 도 ffmpeg 도 필요 없습니다.** 이미지만 만들기 때문입니다.
+> Pillow 하나면 됩니다 — `pip install "capcut-auto[cardnews]"`.
 > 리눅스에서 한글이 네모로 나오면 `apt install fonts-nanum` 하거나
 > `--font` 으로 `.ttf` 경로를 직접 주세요.
 

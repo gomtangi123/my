@@ -17,6 +17,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from .errors import TemplateError
+
 import pycapcut as cc
 from pycapcut import (
     AudioMaterial,
@@ -46,8 +48,6 @@ NARRATION_TRACK = "narration"
 CONTENT_FILE = "draft_content.json"
 
 
-class TemplateError(RuntimeError):
-    pass
 
 
 @dataclass

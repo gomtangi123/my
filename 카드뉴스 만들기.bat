@@ -26,8 +26,11 @@ REM ---- python 3.10 or newer? ------------------------------------
 %PY% -c "import sys; sys.exit(0 if sys.version_info>=(3,10) else 1)" >nul 2>nul
 if errorlevel 1 goto old_python
 
-REM ---- install on first run -------------------------------------
-%PY% -c "import capcut_auto" >nul 2>nul
+REM ---- install on first run --------------------------------------
+REM Checking 'import capcut_auto' is useless here: this script runs
+REM from the repo root, so the folder itself satisfies the import
+REM even when nothing is installed. Check real dependencies instead.
+%PY% -c "import numpy, PIL" >nul 2>nul
 if errorlevel 1 (
   echo.
   echo   First run - installing. This takes 1-3 minutes...

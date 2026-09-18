@@ -12,7 +12,8 @@ from pathlib import Path
 
 from . import cardnews, pipeline, render as render_mod, subtitles
 from .assets import cache as asset_cache, providers as asset_providers
-from .capcut import draft as draft_mod, paths as capcut_paths
+from .capcut import paths as capcut_paths
+from .capcut.errors import TemplateError
 from .config import AssetsConfig, Config
 from .ffmpeg import FFmpegMissing
 from .transcribe import TranscriptionUnavailable
@@ -28,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     try:
         return args.handler(args)
-    except (FFmpegMissing, TranscriptionUnavailable, draft_mod.TemplateError) as exc:
+    except (FFmpegMissing, TranscriptionUnavailable, TemplateError) as exc:
         print(f"\n오류: {exc}", file=sys.stderr)
         return 2
     except (FileExistsError, FileNotFoundError, ValueError, KeyError) as exc:
@@ -436,6 +437,19 @@ def cmd_edit(args) -> int:
             drafts_root = Path(root)
         else:
             drafts_root = out_dir / "drafts"
+
+        # pycapcut 은 드래프트를 구울 때만 필요하다. 카드뉴스처럼 CapCut 과
+        # 상관없는 기능까지 이것 때문에 죽지 않도록 여기서 불러온다.
+        try:
+            from .capcut import draft as draft_mod
+        except ImportError as exc:
+            print(
+                f"\n오류: CapCut 드래프트를 만들려면 pycapcut 이 필요합니다 ({exc}).\n"
+                '  pip install -e ".[all]"  로 설치하세요.\n'
+                "  (카드뉴스 기능은 이것 없이도 됩니다.)",
+                file=sys.stderr,
+            )
+            return 2
 
         result = draft_mod.build(
             plan,
