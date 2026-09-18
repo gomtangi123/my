@@ -211,6 +211,15 @@ class CommonsProvider(Provider):
     allowed: tuple[str, ...] = (
         "cc0", "cc by", "cc by-sa", "public domain", "pd", "attribution",
     )
+    # 커먼즈에는 사진보다 지도·도표·문장(紋章)이 훨씬 많다. 카드 배경으로는
+    # 못 쓰므로 검색어에서 빼고, 파일 이름으로 한 번 더 거른다.
+    reject: tuple[str, ...] = (
+        "map", "diagram", "chart", "graph", "logo", "seal", "coat of arms",
+        "flag", "icon", "svg", "scan", "signature", "stamp", "poster",
+        "screenshot", "portrait of", "engraving", "drawing", "painting",
+    )
+    # 너무 길쭉한 그림(파노라마·세로 띠)은 카드에 넣으면 거의 다 잘린다.
+    max_ratio: float = 2.6
 
     def supports(self, kind: str) -> bool:
         return kind == "image"
@@ -223,7 +232,11 @@ class CommonsProvider(Provider):
             "format": "json",
             "generator": "search",
             # 사진만. 로고·도표·SVG 는 배경으로 쓸 게 못 된다.
-            "gsrsearch": f"filetype:bitmap {query}",
+            # `-단어` 는 그 낱말이 든 결과를 뺀다.
+            "gsrsearch": " ".join(
+                [f"filetype:bitmap {query}"]
+                + [f"-{word}" for word in ("map", "diagram", "logo", "coat")]
+            ),
             "gsrnamespace": "6",
             "gsrlimit": str(max(1, min(limit * 3, 50))),
             "prop": "imageinfo",
@@ -252,6 +265,11 @@ class CommonsProvider(Provider):
         if int(info.get("width", 0) or 0) < self.min_width:
             return None
 
+        if self._looks_wrong(str(page.get("title", ""))):
+            return None
+        if self._too_long(info):
+            return None
+
         meta = info.get("extmetadata") or {}
         licence = str(_meta(meta, "LicenseShortName")).strip()
         if not self._is_free(licence):
@@ -273,6 +291,19 @@ class CommonsProvider(Provider):
     def _is_free(self, licence: str) -> bool:
         low = licence.lower()
         return any(token in low for token in self.allowed)
+
+    def _looks_wrong(self, title: str) -> bool:
+        """파일 이름만 봐도 사진이 아닌 것들."""
+        low = title.lower()
+        return any(word in low for word in self.reject)
+
+    def _too_long(self, info: dict) -> bool:
+        w = float(info.get("width", 0) or 0)
+        h = float(info.get("height", 0) or 0)
+        if w <= 0 or h <= 0:
+            return False
+        ratio = max(w, h) / min(w, h)
+        return ratio > self.max_ratio
 
 
 def _meta(meta: dict, key: str) -> str:

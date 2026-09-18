@@ -191,13 +191,14 @@ class TestChartCardsRender:
     def test_table_directive(self):
         assert script.parse("@표\n## 비교\n가 | 나").cards[0].kind == "table"
 
-    def test_chart_cards_never_get_a_photo(self):
+    def test_chart_cards_get_a_washed_photo(self):
         from capcut_auto.cardnews import photos
         from capcut_auto.cardnews.models import Card
 
-        # 표·그래프 위에 사진을 깔면 둘 다 안 읽힌다.
-        assert photos.mode_for(Card(kind="bars")) == photos.NONE
-        assert photos.mode_for(Card(kind="table")) == photos.NONE
+        # 사진을 그대로 깔면 가는 선이 묻히고, 아예 빼면 앞뒤 카드와 따로 논다.
+        # 색만 남긴 그라데이션이 그 사이를 맞춘다.
+        assert photos.mode_for(Card(kind="bars")) == photos.WASH
+        assert photos.mode_for(Card(kind="table")) == photos.WASH
 
     def test_empty_chart_body_still_renders(self, style):
         from capcut_auto.cardnews import render_card

@@ -69,6 +69,35 @@ def _metrics(path: str, spacing: float):
     return make
 
 
+def _inks(image, card: Card, style: Style, bg: str, fg: str, on_photo: bool):
+    """사진 위에서 **실제로 읽히는** 색 묶음 (강조, 흐린 글씨, 회색 막대, 구분선).
+
+    장막 농도는 진한 글자색(`fg`) 기준으로 잡는다. 그런데 표와 그래프는
+    흐린 잉크와 회색 막대를 함께 쓰고, 그것들은 중간 밝기라 같은 배경에서
+    훨씬 불리하다 — `fg` 는 읽히는데 머리글은 사진에 묻히는 일이 생긴다.
+
+    장막을 더 진하게 해서 맞추려 들면 사진이 통째로 사라진다. 그러니
+    장막은 그대로 두고, **잉크를 글자색 쪽으로 밀어** 대비를 맞춘다.
+    """
+    accent, muted = style.theme.marks(card.kind)
+    grey = colors.de_emphasis(fg, bg)
+    rule = colors.mix(fg, bg, 0.86)
+    if not on_photo:
+        return accent, muted, grey, rule
+
+    width, height = style.size.width, style.size.height
+    worst = compose.extreme_luminance(
+        image, (0, 0, width, height), bright=colors.luminance(fg) > 0.5
+    )
+    return (
+        colors.reach_contrast_lum(accent, worst, fg, minimum=4.5),
+        colors.reach_contrast_lum(muted, worst, fg, minimum=4.5),
+        # 막대·구분선은 글씨가 아니라 도형이라 3:1 이 기준이다.
+        colors.reach_contrast_lum(grey, worst, fg, minimum=3.0),
+        colors.reach_contrast_lum(rule, worst, fg, minimum=3.0),
+    )
+
+
 def _brand_height(style: Style) -> float:
     """맨 위 브랜드 줄이 먹는 높이. 내용은 여기 아래에서 시작한다."""
     size = _px(style, style.layout.brand)
@@ -107,10 +136,29 @@ def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
         # 사진이 깨졌다고 카드까지 못 만들 이유는 없다.
         return Image.new("RGB", (width, height), bg), plain_top, plain_h
 
+    if mode == photos_mod.WASH:
+        # 사진의 색만 남긴 그라데이션. 형태가 사라져 표·그래프가 읽힌다.
+        washed = compose.gradient_from(source, width, height)
+        alpha = compose.scrim_alpha(
+            washed,
+            (0, 0, width, height),
+            fg,
+            bg,
+            minimum=photos_mod.scrim_minimum(card.kind),
+        )
+        return compose.apply_scrim(washed, bg, alpha), plain_top, plain_h
+
     if mode == photos_mod.FULL:
         filled = compose.cover_crop(source, width, height)
-        # 글은 카드 전체에 흩어져 있다(꼬리말 포함)이라 전면을 기준으로 잰다.
-        alpha = compose.scrim_alpha(filled, (0, 0, width, height), fg, bg)
+        # 글이 카드 전체에 흩어져 있어(꼬리말 포함) 전면을 기준으로 잰다.
+        # 표·그래프는 가는 선이 많아 더 진한 장막을 요구한다.
+        alpha = compose.scrim_alpha(
+            filled,
+            (0, 0, width, height),
+            fg,
+            bg,
+            minimum=photos_mod.scrim_minimum(card.kind),
+        )
         return compose.apply_scrim(filled, bg, alpha), plain_top, plain_h
 
     # 띠 사진은 브랜드 줄 아래에서 시작한다. 그 위에 겹치면 계정명이
@@ -326,12 +374,12 @@ def render_card(
     lay = style.layout
     width, height = style.size.width, style.size.height
     bg, fg = style.theme.colors(card.kind)
-    accent, _ = style.theme.marks(card.kind)
     # 숫자 카드는 수치 자체가 강조라, 제목을 강조색으로 그리고 밑줄은 뺀다.
-    title_fill = accent if card.kind == "stat" else fg
-
     mode = photos_mod.mode_for(card, style.photo_mode)
     image, top, box_h = _background(card, style, photo, mode, bg, fg)
+    on_photo = photo is not None and mode != photos_mod.NONE
+    accent, muted, grey, rule = _inks(image, card, style, bg, fg, on_photo)
+    title_fill = accent if card.kind == "stat" else fg
     draw = ImageDraw.Draw(image)
 
     margin = _px(style, lay.margin)
@@ -418,18 +466,24 @@ def render_card(
             y += gap
 
     if is_chart:
-        _draw_chart(draw, card, style, margin, y + gap, box_w, top + box_h - (y + gap))
+        _draw_chart(
+            draw, card, style,
+            margin, y + gap, box_w, top + box_h - (y + gap),
+            accent=accent, muted=muted, grey=grey, rule=rule,
+        )
 
-    _draw_footer(draw, style, card, page, is_last)
+    _draw_footer(draw, style, card, page, is_last, accent=accent, muted=muted)
     return image
 
 
-def _draw_chart(draw, card: Card, style: Style, left, top, width, height) -> None:
+def _draw_chart(
+    draw, card: Card, style: Style, left, top, width, height,
+    accent: str, muted: str, grey: str, rule: str,
+) -> None:
     """표 / 막대 카드의 알맹이. 제목을 그리고 남은 자리에 들어간다."""
     if height <= 0:
         return
-    bg, fg = style.theme.colors(card.kind)
-    accent, muted = style.theme.marks(card.kind)
+    _, fg = style.theme.colors(card.kind)
     box = (int(left), int(top), int(width), int(height))
 
     def font_at(size: int, bold: bool = False):
@@ -444,7 +498,7 @@ def _draw_chart(draw, card: Card, style: Style, left, top, width, height) -> Non
             ink=fg,
             muted=muted,
             accent=accent,
-            grey=colors.de_emphasis(fg, bg),
+            grey=grey,
             unit=min(style.size.width, style.size.height),
         )
     else:
@@ -457,16 +511,19 @@ def _draw_chart(draw, card: Card, style: Style, left, top, width, height) -> Non
             muted=muted,
             accent=accent,
             # 칸 구분선은 바탕에서 한 단계만 벗어난 실선.
-            rule=colors.mix(fg, bg, 0.86),
+            rule=rule,
         )
 
 
 def _draw_footer(
-    draw, style: Style, card: Card, page: str, is_last: bool = False
+    draw, style: Style, card: Card, page: str, is_last: bool = False,
+    accent: str | None = None, muted: str | None = None,
 ) -> None:
     """맨 위 브랜드 줄과, 마지막 장의 출처 한 줄."""
     lay = style.layout
-    accent, muted = style.theme.marks(card.kind)
+    theme_accent, theme_muted = style.theme.marks(card.kind)
+    accent = accent or theme_accent
+    muted = muted or theme_muted
     _, fg = style.theme.colors(card.kind)
     poster_mod.draw_brand_bar(
         draw, style, page, fg, muted, accent, _font_at(style),

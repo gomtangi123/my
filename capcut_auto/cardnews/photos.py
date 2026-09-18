@@ -22,17 +22,33 @@ from .models import Card, Deck
 # 사진을 어떻게 깔지. render가 이 이름을 보고 그린다.
 FULL = "full"
 BAND = "band"
+# 사진의 색만 남기고 형태를 지운 그라데이션. 표·그래프 뒤에 쓴다.
+WASH = "wash"
 NONE = "none"
 
+# 모든 카드에 사진을 깐다. 글이 읽히는 건 장막이 책임진다 —
+# 카드마다 사진 픽셀을 재서 필요한 만큼만 덮는다.
 DEFAULT_MODES: dict[str, str] = {
     "cover": FULL,
-    "body": BAND,
-    "stat": NONE,
-    "outro": NONE,
-    # 표·그래프 위에 사진을 깔면 둘 다 안 읽힌다.
-    "bars": NONE,
-    "table": NONE,
+    "body": FULL,
+    "stat": FULL,
+    "outro": FULL,
+    # 표와 그래프 뒤에 사진을 그대로 깔면 가는 선과 작은 글씨가 묻힌다.
+    # 사진의 색만 남긴 그라데이션을 쓰면 덱의 흐름은 잇고 글씨는 산다.
+    "bars": WASH,
+    "table": WASH,
 }
+
+# 카드 종류별 장막 목표 대비. 표·그래프는 마크가 가늘어 더 높게 잡는다.
+SCRIM_MINIMUM: dict[str, float] = {
+    "bars": 7.0,
+    "table": 7.0,
+}
+DEFAULT_SCRIM_MINIMUM = 4.5
+
+
+def scrim_minimum(kind: str) -> float:
+    return SCRIM_MINIMUM.get(kind, DEFAULT_SCRIM_MINIMUM)
 
 # 검색어에 쓸 키워드 개수. 너무 많이 넣으면 스톡 검색이 0건이 된다.
 QUERY_WORDS = 2
@@ -44,7 +60,7 @@ def mode_for(card: Card, override: str = "auto") -> str:
     """이 카드에 사진을 어떻게 깔지."""
     if card.image_off or override == "off":
         return NONE
-    if override in (FULL, BAND):
+    if override in (FULL, BAND, WASH):
         return override
     return DEFAULT_MODES.get(card.kind, BAND)
 
@@ -150,10 +166,11 @@ def collect(
         say(f"  ! {name} 제공자에 접속하지 못했습니다 — {reason}")
 
     if missed:
-        # 카드 글에서 뽑은 검색어가 늘 좋을 수는 없다. 손으로 주는 길을 알려 준다.
+        # 사진을 못 찾으면 만들어 쓰는 배경으로 떨어진다. 그걸 사진인 줄
+        # 알면 곤란하니 분명히 말해 준다.
         say(
-            f"  ({missed}장은 사진 없이 나갑니다 — 대본에 `@사진 <검색어>` 를 "
-            "넣으면 직접 지정할 수 있습니다)"
+            f"  ({missed}장은 사진 대신 만들어 쓰는 배경으로 나갑니다.\n"
+            "   대본에 `@사진 <영어 검색어>` 를 넣으면 직접 지정할 수 있습니다)"
         )
     return found
 
@@ -201,8 +218,10 @@ def attribution(found: dict[int, Asset]) -> str:
 __all__ = [
     "FULL",
     "BAND",
+    "WASH",
     "NONE",
     "DEFAULT_MODES",
+    "scrim_minimum",
     "mode_for",
     "query_for",
     "collect",

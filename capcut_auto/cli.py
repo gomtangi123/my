@@ -143,8 +143,8 @@ def _build_parser() -> argparse.ArgumentParser:
     cards.add_argument(
         "--photos",
         default="auto",
-        choices=["auto", "full", "band", "off"],
-        help="사진 깔기. auto면 표지는 꽉 채우고 본문은 위쪽 띠, 숫자 카드는 안 깝니다.",
+        choices=["auto", "full", "band", "wash", "off"],
+        help="사진 깔기. auto면 표·그래프만 그라데이션으로 펴고 나머지는 꽉 채웁니다.",
     )
     cards.add_argument(
         "--assets-folder", help="내 사진 폴더 (API 키 불필요, 파일 이름이 태그)"

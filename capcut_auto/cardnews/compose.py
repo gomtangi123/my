@@ -142,11 +142,34 @@ def gradient_scrim(
     )
 
 
+# 사진을 그라데이션으로 펼 때 남길 격자. 이보다 잘게 나누면 사진의 형태가
+# 남아서 글씨를 방해하고, 더 성기면 그냥 단색 두어 개가 된다.
+WASH_GRID = (3, 4)
+
+
+def gradient_from(image, width: int, height: int, softness: float = 0.06):
+    """사진을 색만 남긴 그라데이션으로 편다.
+
+    표나 그래프 뒤에 사진을 그대로 깔면 가는 선과 작은 글씨가 묻힌다.
+    그렇다고 사진을 빼면 앞뒤 카드와 따로 논다. 사진을 아주 잘게 줄였다가
+    다시 키우면 형태는 사라지고 색과 밝기 배치만 남는다 — 같은 사진에서
+    나온 배경이라 덱의 흐름은 이어지고, 글씨는 읽힌다.
+    """
+    from PIL import Image, ImageFilter  # type: ignore
+
+    source = cover_crop(image, width, height)
+    tiny = source.resize(WASH_GRID, Image.BOX)  # 칸마다 평균색
+    spread = tiny.resize((width, height), Image.BICUBIC)
+    return spread.filter(ImageFilter.GaussianBlur(max(1.0, width * softness)))
+
+
 __all__ = [
     "cover_crop",
     "extreme_luminance",
     "scrim_alpha",
     "apply_scrim",
     "gradient_scrim",
+    "gradient_from",
+    "WASH_GRID",
     "ALPHAS",
 ]

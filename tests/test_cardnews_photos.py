@@ -101,12 +101,14 @@ class TestApplyScrim:
 
 
 class TestModeFor:
-    def test_defaults_by_kind(self):
-        assert photos.mode_for(Card(kind="cover")) == photos.FULL
-        assert photos.mode_for(Card(kind="body")) == photos.BAND
-        # 숫자 카드는 수치가 그림이다 — 사진을 깔면 지저분해진다.
-        assert photos.mode_for(Card(kind="stat")) == photos.NONE
-        assert photos.mode_for(Card(kind="outro")) == photos.NONE
+    def test_every_card_gets_a_photo(self):
+        # 글씨만 있는 카드는 심심하다. 읽히는 건 장막과 잉크 보정이 책임진다.
+        for kind in ("cover", "body", "stat", "outro"):
+            assert photos.mode_for(Card(kind=kind)) == photos.FULL
+
+    def test_charts_get_the_washed_version(self):
+        for kind in ("bars", "table"):
+            assert photos.mode_for(Card(kind=kind)) == photos.WASH
 
     def test_override_wins(self):
         assert photos.mode_for(Card(kind="stat"), "full") == photos.FULL
@@ -272,10 +274,85 @@ class TestRenderWithPhoto:
         )
         assert image.size == (1080, 1350)
 
-    def test_stat_card_ignores_a_photo_in_auto(self, style, asset):
+    def test_stat_card_takes_a_photo_too(self, style, asset):
         from capcut_auto.cardnews import render_card
 
         card = Card(title="1억원", body="한도", kind="stat")
-        assert render_card(card, style, "2/3").tobytes() == render_card(
+        assert render_card(card, style, "2/3").tobytes() != render_card(
             card, style, "2/3", photo=asset
         ).tobytes()
+
+    def test_chart_card_gets_a_washed_photo(self, style, asset):
+        from capcut_auto.cardnews import render_card
+
+        card = Card(title="한도", body="가 | 5000\n나 | 10000", kind="bars")
+        plain = render_card(card, style, "2/3")
+        washed = render_card(card, style, "2/3", photo=asset)
+        assert plain.tobytes() != washed.tobytes()
+
+
+class TestGradientFrom:
+    """사진을 색만 남긴 그라데이션으로 펴기 (표·그래프 배경)."""
+
+    def test_returns_requested_size(self):
+        out = compose.gradient_from(solid((10, 80, 160), (900, 600)), 400, 500)
+        assert out.size == (400, 500)
+
+    def test_keeps_the_overall_colour(self):
+        # 색이 남아야 앞뒤 카드와 한 벌로 보인다.
+        out = compose.gradient_from(solid((10, 80, 160), (900, 600)), 300, 300)
+        r, g, b = out.getpixel((150, 150))
+        assert abs(r - 10) < 20 and abs(g - 80) < 20 and abs(b - 160) < 20
+
+    def test_shape_is_gone(self):
+        """또렷한 무늬가 남으면 글씨를 방해한다 — 이웃 픽셀 차이가 작아야 한다."""
+        img = Image.new("RGB", (400, 400), (250, 250, 250))
+        d = ImageDraw.Draw(img)
+        for x in range(0, 400, 20):  # 촘촘한 검은 줄무늬
+            d.rectangle([x, 0, x + 10, 400], fill=(0, 0, 0))
+        out = compose.gradient_from(img, 400, 400)
+        row = [out.getpixel((x, 200))[0] for x in range(0, 400, 4)]
+        assert max(abs(a - b) for a, b in zip(row, row[1:])) < 12
+
+    def test_a_dark_photo_stays_dark(self):
+        out = compose.gradient_from(solid((12, 12, 14), (800, 600)), 200, 200)
+        assert colors.luminance_rgb(out.getpixel((100, 100))) < 0.1
+
+
+class TestInkOverPhoto:
+    """사진 위에서는 잉크도 배경에 맞춰 밀어야 한다."""
+
+    @pytest.fixture
+    def style(self):
+        from capcut_auto.cardnews import build_style, fonts, resolve_size, resolve_theme
+
+        try:
+            return build_style(resolve_theme("light"), resolve_size("post"))
+        except fonts.FontMissing:
+            pytest.skip("한글 글꼴이 없는 환경")
+
+    def test_muted_is_pushed_when_the_photo_is_busy(self, style):
+        from capcut_auto.cardnews.render import _inks
+
+        bg, fg = style.theme.colors("table")
+        flat = _inks(solid((255, 255, 255)), Card(kind="table"), style, bg, fg, False)
+        # 중간 밝기 배경 위에서는 흐린 잉크가 그대로면 안 읽힌다.
+        over = _inks(solid((150, 150, 150)), Card(kind="table"), style, bg, fg, True)
+        assert over[1] != flat[1]
+        assert colors.contrast(over[1], "#969696") >= 4.4
+
+    def test_marks_use_the_shape_floor(self, style):
+        from capcut_auto.cardnews.render import _inks
+
+        bg, fg = style.theme.colors("bars")
+        _, _, grey, rule = _inks(solid((150, 150, 150)), Card(kind="bars"), style, bg, fg, True)
+        # 막대·구분선은 글씨가 아니라 도형이라 3:1 이 기준이다.
+        assert colors.contrast(grey, "#969696") >= 2.9
+        assert colors.contrast(rule, "#969696") >= 2.9
+
+    def test_nothing_changes_without_a_photo(self, style):
+        from capcut_auto.cardnews.render import _inks
+
+        bg, fg = style.theme.colors("body")
+        accent, muted, _, _ = _inks(solid((255, 255, 255)), Card(), style, bg, fg, False)
+        assert (accent, muted) == style.theme.marks("body")
