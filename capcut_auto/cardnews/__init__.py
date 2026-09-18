@@ -7,6 +7,7 @@
 from .fonts import FontMissing
 from .models import Card, Deck, Size, SIZES, resolve_size
 from .render import PillowMissing, Style, build_style, render_card, render_deck
+from .photos import collect as collect_photos, credits as photo_credits
 from .script import parse
 from .theme import DEFAULT_THEME, THEMES, Layout, Theme, resolve as resolve_theme
 
@@ -28,4 +29,6 @@ __all__ = [
     "render_deck",
     "PillowMissing",
     "FontMissing",
+    "collect_photos",
+    "photo_credits",
 ]

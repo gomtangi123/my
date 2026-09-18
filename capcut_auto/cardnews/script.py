@@ -25,7 +25,8 @@ from .models import Card, Deck
 # 구분선: `-`, `=`, `*` 를 3개 이상 늘어놓은 줄. 마크다운을 쓰던 습관 그대로.
 _SEPARATOR_RE = re.compile(r"^\s*([-=*])\1{2,}\s*$")
 _HEADING_RE = re.compile(r"^\s*#{1,6}\s*(.*)$")
-_DIRECTIVE_RE = re.compile(r"^\s*@(\w+|표지|마무리)\s*$")
+# 지시어는 블록 맨 위에 여러 줄 올 수 있다: `@숫자` 다음 줄에 `@사진 piggy bank`.
+_DIRECTIVE_RE = re.compile(r"^\s*@([^\s]+)(?:\s+(.*))?\s*$")
 
 # 지시어 → 카드 종류. 한글/영문을 모두 받는다.
 _KINDS = {
@@ -36,6 +37,10 @@ _KINDS = {
     "숫자": "stat",
     "stat": "stat",
 }
+
+# `@사진 <검색어>` — 검색어를 비우면 카드 글에서 알아서 뽑는다.
+_IMAGE = frozenset({"사진", "photo", "image"})
+_NO_IMAGE = frozenset({"사진없음", "nophoto", "noimage"})
 
 
 def split_blocks(text: str) -> list[list[str]]:
@@ -60,9 +65,17 @@ def _trim(lines: list[str]) -> list[str]:
 
 
 def parse_block(lines: list[str], index: int) -> Card:
-    kind = ""
-    if lines and (m := _DIRECTIVE_RE.match(lines[0])):
-        kind = _KINDS.get(m.group(1), "")
+    kind, image_query, image_off = "", "", False
+    while lines and (m := _DIRECTIVE_RE.match(lines[0])):
+        name, argument = m.group(1), (m.group(2) or "").strip()
+        if name in _NO_IMAGE:
+            image_off = True
+        elif name in _IMAGE:
+            image_query = argument
+        elif name in _KINDS:
+            kind = _KINDS[name]
+        else:
+            break  # 모르는 지시어는 본문으로 취급한다 — 조용히 삼키면 곤란하다
         lines = _trim(lines[1:])
 
     title, body_lines = "", lines
@@ -77,7 +90,14 @@ def parse_block(lines: list[str], index: int) -> Card:
 
     if not kind:
         kind = "cover" if index == 0 else "body"
-    return Card(title=title, body="\n".join(body_lines), kind=kind, index=index)
+    return Card(
+        title=title,
+        body="\n".join(body_lines),
+        kind=kind,
+        index=index,
+        image_query=image_query,
+        image_off=image_off,
+    )
 
 
 def parse(text: str) -> Deck:

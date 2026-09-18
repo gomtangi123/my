@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-from . import fonts, layout as layout_mod
+from . import compose, fonts, layout as layout_mod, photos as photos_mod
 from .models import Card, Deck, Size
 from .theme import Layout, Theme
 
@@ -60,6 +60,43 @@ def _metrics(path: str, spacing: float):
     return make
 
 
+def _background(card: Card, style: Style, photo, mode: str, bg: str, fg: str):
+    """(배경 이미지, 글이 시작할 y, 글이 쓸 수 있는 높이).
+
+    꽉 채우기(full)는 사진 위에 장막을 씌우고 그 위에 글을 쓴다. 장막 진하기는
+    사진의 실제 픽셀을 재서 정한다 — `compose.scrim_alpha` 참고.
+    띠(band)는 위쪽에 사진, 아래쪽 단색 바탕에 글이라 장막이 필요 없다.
+    """
+    Image, _, _ = _require_pillow()
+    lay = style.layout
+    width, height = style.size.width, style.size.height
+    margin = _px(style, lay.margin)
+    footer_h = _px(style, lay.footer) * 3
+    plain_top = margin
+    plain_h = height - margin - footer_h - plain_top
+
+    if photo is None or mode == photos_mod.NONE:
+        return Image.new("RGB", (width, height), bg), plain_top, plain_h
+
+    try:
+        source = Image.open(photo.path)
+    except (OSError, ValueError):
+        # 사진이 깨졌다고 카드까지 못 만들 이유는 없다.
+        return Image.new("RGB", (width, height), bg), plain_top, plain_h
+
+    if mode == photos_mod.FULL:
+        filled = compose.cover_crop(source, width, height)
+        # 글은 카드 전체에 흩어져 있다(꼬리말 포함)이라 전면을 기준으로 잰다.
+        alpha = compose.scrim_alpha(filled, (0, 0, width, height), fg, bg)
+        return compose.apply_scrim(filled, bg, alpha), plain_top, plain_h
+
+    band_h = max(1, int(round(height * lay.band)))
+    canvas = Image.new("RGB", (width, height), bg)
+    canvas.paste(compose.cover_crop(source, width, band_h), (0, 0))
+    top = band_h + margin
+    return canvas, top, height - margin - footer_h - top
+
+
 @dataclass
 class Style:
     """한 벌의 카드에 공통으로 적용되는 것들."""
@@ -75,6 +112,8 @@ class Style:
     swipe_hint: bool = True
     # 이미지 출처 등. 마지막 장 아래에만 한 줄로 박는다.
     source: str = ""
+    # "auto" / "full" / "band" / "off". auto면 카드 종류가 정한다.
+    photo_mode: str = "auto"
 
 
 def _px(style: Style, ratio: float) -> int:
@@ -87,7 +126,11 @@ def _sizes(style: Style, largest: float, smallest: float) -> list[int]:
 
 
 def render_card(
-    card: Card, style: Style, page: str = "", is_last: bool = False
+    card: Card,
+    style: Style,
+    page: str = "",
+    is_last: bool = False,
+    photo=None,
 ) -> "object":
     """카드 한 장을 Pillow Image로. 저장은 호출부가 한다."""
     Image, ImageDraw, _ = _require_pillow()
@@ -98,16 +141,14 @@ def render_card(
     # 숫자 카드는 수치 자체가 강조라, 제목을 강조색으로 그리고 밑줄은 뺀다.
     title_fill = accent if card.kind == "stat" else fg
 
-    image = Image.new("RGB", (width, height), bg)
+    mode = photos_mod.mode_for(card, style.photo_mode)
+    image, top, box_h = _background(card, style, photo, mode, bg, fg)
     draw = ImageDraw.Draw(image)
 
     margin = _px(style, lay.margin)
-    footer_h = _px(style, lay.footer) * 3
     box_w = width - margin * 2
-    top = margin
-    box_h = height - margin - footer_h - top
 
-    centered = card.kind in ("cover", "outro", "stat")
+    centered = card.kind in ("cover", "outro", "stat") and mode != photos_mod.BAND
     title_range = {
         "cover": (lay.cover_title_max, lay.cover_title_min),
         "stat": (lay.stat_max, lay.stat_min),
@@ -236,6 +277,7 @@ def render_deck(
     deck: Deck,
     out_dir: str | Path,
     style: Style,
+    photos: dict[int, object] | None = None,
     progress=None,
 ) -> list[Path]:
     """카드 묶음을 PNG로 떨군다. 파일 이름은 `01.png`부터.
@@ -252,7 +294,13 @@ def render_deck(
     paths: list[Path] = []
     for card in deck.cards:
         page = f"{card.index + 1}/{total}" if total > 1 else ""
-        image = render_card(card, style, page, is_last=card.index == total - 1)
+        image = render_card(
+            card,
+            style,
+            page,
+            is_last=card.index == total - 1,
+            photo=(photos or {}).get(card.index),
+        )
         path = out_dir / f"{card.index + 1:02d}.png"
         image.save(path, "PNG", optimize=True)
         paths.append(path)
@@ -266,6 +314,7 @@ def build_style(
     font: str | None = None,
     handle: str = "",
     source: str = "",
+    photo_mode: str = "auto",
     layout: Layout | None = None,
 ) -> Style:
     regular, bold = fonts.find(font)
@@ -277,6 +326,7 @@ def build_style(
         bold=str(bold),
         handle=handle,
         source=source,
+        photo_mode=photo_mode,
     )
 
 

@@ -7,12 +7,13 @@ import json
 import os
 import shutil
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from . import cardnews, pipeline, render as render_mod, subtitles
-from .assets import cache as asset_cache
+from .assets import cache as asset_cache, providers as asset_providers
 from .capcut import draft as draft_mod, paths as capcut_paths
-from .config import Config
+from .config import AssetsConfig, Config
 from .ffmpeg import FFmpegMissing
 from .transcribe import TranscriptionUnavailable
 
@@ -138,6 +139,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     cards.add_argument("--font", help="글꼴 파일 경로 (.ttf/.otf). 기본은 자동 탐색")
     cards.add_argument("--handle", default="", help="카드 아래에 박을 계정명 (예: @myshop)")
+    cards.add_argument(
+        "--photos",
+        default="auto",
+        choices=["auto", "full", "band", "off"],
+        help="사진 깔기. auto면 표지는 꽉 채우고 본문은 위쪽 띠, 숫자 카드는 안 깝니다.",
+    )
+    cards.add_argument(
+        "--assets-folder", help="내 사진 폴더 (API 키 불필요, 파일 이름이 태그)"
+    )
     cards.add_argument(
         "--source",
         default="",
@@ -554,6 +564,28 @@ def cmd_drafts(args) -> int:
     return 0
 
 
+def _cardnews_photos(args, deck, out_dir: Path, say) -> dict:
+    """카드에 깔 사진을 모은다. 제공자가 하나도 없으면 조용히 글만 쓴다."""
+    if args.photos == "off":
+        return {}
+
+    cfg = AssetsConfig(local_folder=args.assets_folder)
+    providers = asset_providers.build_providers(cfg, progress=say)
+    if not providers:
+        say("사진 제공자가 없어 글만 씁니다.")
+        say("  --assets-folder 로 내 사진 폴더를 주거나 PEXELS_API_KEY 를 설정하세요.")
+        return {}
+
+    say("사진 찾는 중...")
+    return cardnews.collect_photos(
+        deck,
+        providers,
+        out_dir / "photos",
+        override=args.photos,
+        progress=say,
+    )
+
+
 def cmd_cardnews(args) -> int:
     text = args.script.read_text(encoding="utf-8")
     deck = cardnews.parse(text)
@@ -565,6 +597,7 @@ def cmd_cardnews(args) -> int:
             font=args.font,
             handle=args.handle,
             source=args.source,
+            photo_mode=args.photos,
         )
     except cardnews.FontMissing as exc:
         print(f"\n오류: {exc}", file=sys.stderr)
@@ -572,8 +605,14 @@ def cmd_cardnews(args) -> int:
 
     out_dir = args.out or Path("capcut-out") / "cardnews"
     say = (lambda _m: None) if args.quiet else print
+
+    found = _cardnews_photos(args, deck, out_dir, say)
+    if found and not args.source:
+        # 출처를 안 줬으면 사진 출처라도 자동으로 박는다. 스톡 약관상 필요한 경우가 많다.
+        style = replace(style, source=cardnews.photo_credits(found))
+
     say(f"카드 {len(deck)}장 → {out_dir}")
-    paths = cardnews.render_deck(deck, out_dir, style, progress=say)
+    paths = cardnews.render_deck(deck, out_dir, style, photos=found, progress=say)
 
     say(
         f"\n완료: {len(paths)}장\n"

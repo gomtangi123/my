@@ -22,11 +22,78 @@ STOPWORDS: frozenset[str] = frozenset(
     하면 하는 해서 하고 되는 되고 있는 있고 없는 없고
     거예요 겁니다 습니다 입니다 인데요 니까 라서 는데
     수요 그거 이거 저거 뭔가 뭐가 이번 저번 다들 모두
+    한도 기준 항목 대상 조건 방법 내용 확인 신청 적용 변경 차이 종류
+    이유 결과 시점 여부 절차 나머지 대신 자동 각각
+    동안 이상 이하 미만 초과 얼마 상관
     """.split()
 )
 
 # 한국어 → 영어 스톡 검색어.
 KEYWORD_MAP: dict[str, str] = {
+    # 돈 / 금융 — 직역이 아니라 "어떤 사진이 나오면 좋은가"로 골랐다.
+    # ("한도"를 limit으로 옮겨 봐야 쓸 만한 사진이 안 나온다 → 불용어로 뺐다)
+    "예금": "savings deposit",
+    "적금": "savings deposit",
+    "통장": "bankbook savings account",
+    "계좌": "bank account",
+    "저축은행": "savings bank",
+    "증권사": "brokerage office",
+    "예금자보호": "bank vault safe",
+    "파산": "bankruptcy",
+    "현금": "cash money",
+    "저금통": "piggy bank",
+    "월급": "salary paycheck",
+    "가계부": "budget planner notebook",
+    "재테크": "personal finance planning",
+    "자산": "wealth assets",
+    "금융": "finance",
+    # 세금
+    "연말정산": "tax return paperwork",
+    "공제": "tax deduction",
+    "소득공제": "tax deduction documents",
+    "세액공제": "tax deduction documents",
+    "절세": "tax saving calculator",
+    "국세청": "tax office",
+    "영수증": "receipt",
+    "서류": "documents paperwork",
+    "상속": "inheritance family",
+    "증여": "gift money family",
+    # 집
+    "월세": "apartment rent keys",
+    "전세": "apartment lease",
+    "임대차": "lease contract",
+    "계약서": "contract signing",
+    "청약": "application form",
+    # 의료 / 생활
+    "의료비": "hospital medical bill",
+    "안경": "eyeglasses",
+    "콘택트렌즈": "contact lens",
+    "산후조리원": "newborn baby",
+    "기부금": "donation charity",
+    "물가": "grocery prices",
+    "인플레이션": "inflation",
+    # 노후 / 연금
+    "연금": "retirement pension",
+    "퇴직연금": "retirement savings",
+    "연금저축": "retirement savings",
+    "노후": "retired couple",
+    # 증시
+    "배당": "dividend stock chart",
+    "배당금": "dividend money",
+    "공모주": "stock ipo",
+    "상장": "stock exchange",
+    "증시": "stock exchange",
+    "코스피": "stock market chart",
+    "주가": "stock chart",
+    "차트": "financial chart",
+    "수수료": "fee calculator",
+    "이자": "interest rate money",
+    "환전": "currency exchange",
+    "달러": "us dollar",
+    "원화": "korean won money",
+    # 사람
+    "청년": "young adult",
+    "직장인": "office worker",
     # 기술 / IT
     "인공지능": "artificial intelligence",
     "에이아이": "artificial intelligence",

@@ -37,6 +37,18 @@ def luminance(color: str) -> float:
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
+def luminance_rgb(rgb: RGB) -> float:
+    """픽셀 하나의 상대 휘도. 사진 위 글씨 대비를 잴 때 쓴다."""
+    r, g, b = (_channel(c) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_lum(a: float, b: float) -> float:
+    """휘도 두 개로 바로 대비비를 낸다."""
+    hi, lo = max(a, b), min(a, b)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def contrast(a: str, b: str) -> float:
     """WCAG 대비비. 1.0(같은 색) ~ 21.0(검정 대 흰색)."""
     la, lb = luminance(a), luminance(b)
@@ -56,4 +68,14 @@ def readable(color: str, bg: str, fallback: str, minimum: float) -> str:
     return color if contrast(color, bg) >= minimum else fallback
 
 
-__all__ = ["parse", "to_hex", "luminance", "contrast", "mix", "readable", "RGB"]
+__all__ = [
+    "parse",
+    "to_hex",
+    "luminance",
+    "luminance_rgb",
+    "contrast",
+    "contrast_lum",
+    "mix",
+    "readable",
+    "RGB",
+]

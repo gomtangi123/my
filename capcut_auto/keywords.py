@@ -116,7 +116,9 @@ def extract(text: str, use_konlpy: bool = True) -> list[str]:
         norm = word.strip().lower()
         if len(norm) < 2 or norm in STOPWORDS or norm in seen:
             continue
-        if norm.isdigit():
+        # 숫자로 시작하는 말은 검색어로 쓸모가 없다 — "5,000", "1억", "24년".
+        # 스톡 사이트에 넣어 봐야 엉뚱한 결과만 나온다.
+        if norm[0].isdigit():
             continue
         # 사전에 있는 단어는 활용형 필터를 건너뛴다 ("하다"로 끝나는 명사 보호).
         if norm not in KEYWORD_MAP and _VERB_ENDING_RE.search(norm):

@@ -11,9 +11,13 @@ class Card:
 
     title: str = ""
     body: str = ""
-    # "cover"(표지) / "body"(본문) / "outro"(마무리)
+    # "cover"(표지) / "body"(본문) / "stat"(숫자) / "outro"(마무리)
     kind: str = "body"
     index: int = 0
+    # @사진 으로 직접 준 검색어. 비어 있으면 카드 글에서 뽑는다.
+    image_query: str = ""
+    # @사진없음 — 이 카드만 사진을 안 쓴다.
+    image_off: bool = False
 
     @property
     def is_empty(self) -> bool:

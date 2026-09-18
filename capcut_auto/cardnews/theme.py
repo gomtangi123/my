@@ -71,6 +71,8 @@ class Layout:
     footer: float = 0.026
     # 출처 한 줄 (마지막 장에만)
     source: float = 0.019
+    # 띠 사진이 먹는 카드 높이 비율 (짧은 변이 아니라 세로 기준)
+    band: float = 0.42
 
 
 THEMES: dict[str, Theme] = {
