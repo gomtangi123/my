@@ -194,7 +194,7 @@ def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: 
         cursor -= body_fit.height + gap * 0.7
 
     title_fit = title_bottom = None
-    fills: list[str] = []
+    owners: list[int] = []  # 제목 줄이 `|` 로 나눈 몇 번째 덩어리인지
     if card.title.strip():
         parts = poster_mod.split_title(card.title)
         title_fit = layout_mod.fit(
@@ -205,11 +205,8 @@ def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: 
             _sizes(style, lay.cover_title_max, lay.cover_title_min),
         )
         measure, _ = _metrics(style.bold, lay.title_line_spacing)(title_fit.size)
-        # 첫 덩어리는 글자색, `|` 뒤는 강조색.
         for i, part in enumerate(parts):
-            fills += [fg if i == 0 else ink_accent] * len(
-                layout_mod.wrap(part, measure, box_w)
-            )
+            owners += [i] * len(layout_mod.wrap(part, measure, box_w))
         title_bottom = cursor
         cursor -= title_fit.height + gap * 0.45
 
@@ -238,6 +235,12 @@ def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: 
             image = compose.gradient_scrim(
                 filled, veil, peak, start=max(0.02, hold - 0.32), hold=hold
             )
+            # 장막은 글자색(보통 흰색) 기준으로 잡았다. 강조색은 중간 밝기라
+            # 같은 배경에서 훨씬 불리하므로, 실제로 잰 배경에 맞춰 다시 민다.
+            worst = compose.extreme_luminance(
+                image, (0, int(block_top), width, height), bright=True
+            )
+            ink_accent = colors.reach_contrast_lum(ink_accent, worst, fg, minimum=4.5)
 
     # ---------------------------------------------------------- 3) 그리기
     draw = ImageDraw.Draw(image)
@@ -254,6 +257,8 @@ def _render_cover(card: Card, style: Style, page: str, total: int, photo, mode: 
             draw, body_fit, _font(style.regular, body_fit.size), margin, body_bottom, fg
         )
     if title_fit is not None:
+        # 첫 덩어리는 글자색, `|` 뒤는 강조색.
+        fills = [fg if owner == 0 else ink_accent for owner in owners]
         poster_mod.draw_block_bottom(
             draw, title_fit, _font(style.bold, title_fit.size), margin, title_bottom, fills
         )

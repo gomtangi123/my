@@ -100,6 +100,23 @@ def reach_contrast(
     return toward
 
 
+def reach_contrast_lum(
+    color: str, bg_lum: float, toward: str, minimum: float = 4.5, steps: int = 10
+) -> str:
+    """`reach_contrast` 와 같지만 배경을 색이 아니라 **휘도 값**으로 받는다.
+
+    사진 위에 글을 쓸 때 쓴다. 장막을 씌운 뒤의 배경은 단색이 아니라서
+    색 하나로 줄 수가 없고, 실제로 잰 최악 픽셀의 휘도를 그대로 넘긴다.
+    """
+    if contrast_lum(luminance(color), bg_lum) >= minimum:
+        return color
+    for i in range(1, steps + 1):
+        candidate = mix(color, toward, i / steps * 0.9)
+        if contrast_lum(luminance(candidate), bg_lum) >= minimum:
+            return candidate
+    return toward
+
+
 def readable(color: str, bg: str, fallback: str, minimum: float) -> str:
     """배경 위에서 대비가 모자라면 대체색으로 물러선다."""
     return color if contrast(color, bg) >= minimum else fallback
@@ -116,5 +133,6 @@ __all__ = [
     "readable",
     "de_emphasis",
     "reach_contrast",
+    "reach_contrast_lum",
     "RGB",
 ]
