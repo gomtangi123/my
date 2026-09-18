@@ -190,6 +190,9 @@ class AssetsConfig:
     enabled: bool = True
     # 내 소재 폴더 (키 없이 동작). 파일 이름이 태그가 된다.
     local_folder: str | None = None
+    # 위키미디어 커먼즈. 키가 필요 없어서 기본으로 켜 둔다.
+    # 자유 라이선스만 쓰고, 저작자·라이선스를 출처에 함께 싣는다.
+    use_commons: bool = True
     # 온라인 제공자 키. 비워 두면 같은 이름의 환경변수를 본다.
     pexels_api_key: str | None = None
     pixabay_api_key: str | None = None

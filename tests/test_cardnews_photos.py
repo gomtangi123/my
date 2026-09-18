@@ -198,7 +198,8 @@ class TestCollect:
     def test_credits_lists_each_source_once(self, tmp_path, images):
         deck = script.parse("# 예금 통장\n---\n## 은행 계좌\n저축")
         found = photos.collect(deck, [FakeProvider(images)], tmp_path)
-        assert photos.credits(found) == "사진: local"
+        # 카드에는 제공자 이름을 사람이 읽는 말로 박는다.
+        assert photos.credits(found) == "사진: 직접 촬영"
 
     def test_credits_empty_without_photos(self):
         assert photos.credits({}) == ""

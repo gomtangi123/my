@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import os
 import re
@@ -189,6 +190,101 @@ class LocalProvider(Provider):
 
 
 # -------------------------------------------------------------------- Pexels
+
+
+@dataclass
+class CommonsProvider(Provider):
+    """위키미디어 커먼즈. **API 키가 필요 없다.**
+
+    여기 올라온 파일은 전부 자유 라이선스(CC BY / CC BY-SA / 퍼블릭 도메인)
+    아니면 그에 준하는 것이라, 출처만 밝히면 상업적으로도 쓸 수 있다.
+    남의 사진을 변형해 쓰는 것과 달리 뒤탈이 없다.
+
+    라이선스와 저작자를 함께 받아 `credit` 에 담는다 — CC BY 는 표시가
+    **의무**라서, 이걸 안 챙기면 자유 라이선스를 써도 위반이 된다.
+    """
+
+    name: str = "commons"
+    # 너무 작은 그림은 카드 배경으로 못 쓴다.
+    min_width: int = 900
+    # 저작자 표시가 까다로운 라이선스는 거른다 (GFDL 등).
+    allowed: tuple[str, ...] = (
+        "cc0", "cc by", "cc by-sa", "public domain", "pd", "attribution",
+    )
+
+    def supports(self, kind: str) -> bool:
+        return kind == "image"
+
+    def search(self, query: str, kind: str, limit: int = 5) -> list[AssetRef]:
+        if not self.supports(kind):
+            return []
+        params = {
+            "action": "query",
+            "format": "json",
+            "generator": "search",
+            # 사진만. 로고·도표·SVG 는 배경으로 쓸 게 못 된다.
+            "gsrsearch": f"filetype:bitmap {query}",
+            "gsrnamespace": "6",
+            "gsrlimit": str(max(1, min(limit * 3, 50))),
+            "prop": "imageinfo",
+            "iiprop": "url|size|extmetadata",
+            "iiurlwidth": "1600",
+        }
+        data = _get_json(
+            "https://commons.wikimedia.org/w/api.php?"
+            + urllib.parse.urlencode(params)
+        )
+        pages = (data.get("query") or {}).get("pages") or {}
+        out: list[AssetRef] = []
+        for page in pages.values():
+            ref = self._to_ref(page)
+            if ref is not None:
+                out.append(ref)
+            if len(out) >= limit:
+                break
+        return out
+
+    def _to_ref(self, page: dict) -> AssetRef | None:
+        info = (page.get("imageinfo") or [{}])[0]
+        url = info.get("thumburl") or info.get("url")
+        if not url:
+            return None
+        if int(info.get("width", 0) or 0) < self.min_width:
+            return None
+
+        meta = info.get("extmetadata") or {}
+        licence = str(_meta(meta, "LicenseShortName")).strip()
+        if not self._is_free(licence):
+            return None
+
+        author = _strip_tags(_meta(meta, "Artist")) or "Wikimedia Commons"
+        credit = f"{author} / {licence}" if licence else author
+        return AssetRef(
+            kind="image",
+            url=url,
+            source="commons",
+            source_id=str(page.get("pageid", "")),
+            width=int(info.get("thumbwidth", 0) or info.get("width", 0) or 0),
+            height=int(info.get("thumbheight", 0) or info.get("height", 0) or 0),
+            credit=credit,
+            page_url=info.get("descriptionurl", ""),
+        )
+
+    def _is_free(self, licence: str) -> bool:
+        low = licence.lower()
+        return any(token in low for token in self.allowed)
+
+
+def _meta(meta: dict, key: str) -> str:
+    return str((meta.get(key) or {}).get("value") or "")
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_tags(text: str) -> str:
+    """커먼즈의 저작자 항목은 HTML 조각으로 온다."""
+    return html.unescape(_TAG_RE.sub("", text)).strip()
 
 
 @dataclass
@@ -441,6 +537,11 @@ def build_providers(cfg, progress=None) -> list[Provider]:
             say(f"소재 제공자: local ({cfg.local_folder})")
         except FileNotFoundError as exc:
             say(f"경고: {exc}")
+
+    if cfg.use_commons:
+        # 키가 필요 없다. 그래서 아무 설정 없이도 사진이 붙는다.
+        providers.append(CommonsProvider())
+        say("소재 제공자: commons (위키미디어, 키 불필요)")
 
     def key_for(name: str, configured: str | None) -> str:
         return (configured or os.environ.get(name, "")).strip()

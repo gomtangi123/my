@@ -621,6 +621,12 @@ def cmd_cardnews(args) -> int:
     say(f"카드 {len(deck)}장 → {out_dir}")
     paths = cardnews.render_deck(deck, out_dir, style, photos=found, progress=say)
 
+    # CC BY 는 저작자 표시가 의무다. 카드 한 줄에는 다 못 들어가니 따로 뽑는다.
+    notes = cardnews.photo_attribution(found)
+    if notes:
+        (out_dir / "출처.md").write_text(notes, encoding="utf-8")
+        say(f"\n사진 출처: {out_dir / '출처.md'}  ← 캡션에 붙여 넣으세요")
+
     say(
         f"\n완료: {len(paths)}장\n"
         f"  인스타 캐러셀에 이 순서 그대로 올리면 됩니다.\n"

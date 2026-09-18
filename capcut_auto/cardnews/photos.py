@@ -82,14 +82,21 @@ def _search_one(
     query: str,
     cache_dir: Path,
     used: set[str],
+    broken: dict[str, str] | None = None,
 ) -> Asset | None:
-    """제공자들을 차례로 뒤져 아직 안 쓴 사진 하나를 내려받는다."""
+    """제공자들을 차례로 뒤져 아직 안 쓴 사진 하나를 내려받는다.
+
+    제공자가 죽으면 나머지로 계속하되, 무슨 일이 있었는지는 `broken` 에
+    적어 둔다. 망이 막혔는데 "결과 없음"만 뜨면 원인을 알 수가 없다.
+    """
     for provider in providers:
         if not provider.supports("image"):
             continue
         try:
             candidates = provider.search(query, "image", limit=CANDIDATES)
-        except ProviderError:
+        except ProviderError as exc:
+            if broken is not None:
+                broken.setdefault(provider.name, str(exc))
             continue  # 한 제공자가 죽어도 나머지로 계속한다
         for ref in candidates:
             key = f"{ref.source}:{ref.source_id}"
@@ -122,6 +129,7 @@ def collect(
     found: dict[int, Asset] = {}
 
     missed = 0
+    broken: dict[str, str] = {}
     for card in deck:
         if mode_for(card, override) == NONE:
             continue
@@ -130,13 +138,16 @@ def collect(
             say(f"  {card.index + 1:02d}  검색어를 못 뽑아 글만 씁니다")
             missed += 1
             continue
-        asset = _search_one(providers, query, cache_dir, used)
+        asset = _search_one(providers, query, cache_dir, used, broken)
         if asset is None:
             say(f"  {card.index + 1:02d}  '{query}' 결과 없음 — 글만 씁니다")
             missed += 1
             continue
         found[card.index] = asset
         say(f"  {card.index + 1:02d}  '{query}' → {asset.source}")
+
+    for name, reason in broken.items():
+        say(f"  ! {name} 제공자에 접속하지 못했습니다 — {reason}")
 
     if missed:
         # 카드 글에서 뽑은 검색어가 늘 좋을 수는 없다. 손으로 주는 길을 알려 준다.
@@ -147,10 +158,44 @@ def collect(
     return found
 
 
+# 카드에 박을 때 쓰는 이름.
+_SOURCE_NAMES = {
+    "commons": "위키미디어 커먼즈",
+    "pexels": "Pexels",
+    "pixabay": "Pixabay",
+    "local": "직접 촬영",
+}
+
+
 def credits(found: dict[int, Asset]) -> str:
-    """사진 출처 한 줄. 카드 맨 아래 `--source` 에 덧붙일 용도."""
-    sources = sorted({asset.source for asset in found.values()})
-    return f"사진: {' · '.join(sources)}" if sources else ""
+    """사진 출처 한 줄. 카드 맨 아래 `--source` 에 들어간다.
+
+    한 줄에는 이름만 싣는다. 저작자까지 넣으면 다섯 명이 넘어가 안 들어간다.
+    CC BY 가 요구하는 저작자 표시는 `attribution_file` 이 따로 뽑아 준다.
+    """
+    names = sorted({_SOURCE_NAMES.get(a.source, a.source) for a in found.values()})
+    return f"사진: {' · '.join(names)}" if names else ""
+
+
+def attribution(found: dict[int, Asset]) -> str:
+    """저작자·라이선스·원본 주소를 모은 글. 캡션에 붙여 넣을 용도.
+
+    CC BY / CC BY-SA 는 **표시가 의무**다. 자유 라이선스라고 그냥 쓰면
+    라이선스 위반이 된다. 그래서 카드와 같이 파일로 떨군다.
+    """
+    if not found:
+        return ""
+    lines = ["사진 출처", ""]
+    seen: set[str] = set()
+    for index in sorted(found):
+        asset = found[index]
+        key = f"{asset.source}:{asset.source_id}"
+        if key in seen:
+            continue
+        seen.add(key)
+        where = f" — {asset.page_url}" if asset.page_url else ""
+        lines.append(f"- {index + 1:02d}번 카드: {asset.credit or asset.source}{where}")
+    return "\n".join(lines) + "\n"
 
 
 __all__ = [
@@ -162,4 +207,5 @@ __all__ = [
     "query_for",
     "collect",
     "credits",
+    "attribution",
 ]

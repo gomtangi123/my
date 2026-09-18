@@ -8,7 +8,11 @@ from .backdrop import DEFAULT_STYLE as DEFAULT_BACKDROP, STYLES as BACKDROPS
 from .fonts import FontMissing
 from .models import Card, Deck, Size, SIZES, resolve_size
 from .render import PillowMissing, Style, build_style, render_card, render_deck
-from .photos import collect as collect_photos, credits as photo_credits
+from .photos import (
+    attribution as photo_attribution,
+    collect as collect_photos,
+    credits as photo_credits,
+)
 from .script import parse
 from .theme import DEFAULT_THEME, THEMES, Layout, Theme, resolve as resolve_theme
 
@@ -34,4 +38,5 @@ __all__ = [
     "DEFAULT_BACKDROP",
     "collect_photos",
     "photo_credits",
+    "photo_attribution",
 ]
