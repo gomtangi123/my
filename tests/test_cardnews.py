@@ -41,6 +41,21 @@ class TestParse:
     def test_english_directive(self):
         assert script.parse("@outro\n끝").cards[0].kind == "outro"
 
+    def test_stat_first_line_is_the_number(self):
+        # `#` 없이 써도 첫 줄이 수치가 되어야 크게 박힌다.
+        card = script.parse("@숫자\n2,000만원\n연간 납입 한도").cards[0]
+        assert card.kind == "stat"
+        assert card.title == "2,000만원"
+        assert card.body == "연간 납입 한도"
+
+    def test_stat_still_honours_an_explicit_heading(self):
+        card = script.parse("@stat\n# 15.4%\n일반 계좌 세율").cards[0]
+        assert (card.title, card.body) == ("15.4%", "일반 계좌 세율")
+
+    def test_stat_without_label(self):
+        card = script.parse("@숫자\n7,000선").cards[0]
+        assert (card.title, card.body) == ("7,000선", "")
+
     def test_blank_blocks_are_dropped(self):
         deck = script.parse("가\n---\n\n\n---\n나")
         assert len(deck) == 2
@@ -110,6 +125,20 @@ class TestFit:
     def test_height_counts_every_line(self):
         result = layout.fit("가나다라", self.metrics, 20.0, 100.0, [10])
         assert result.height == result.line_height * len(result.lines)
+
+    def test_max_lines_rejects_a_wrapped_number(self):
+        # "2,000만원"이 "2,000만"/"원" 으로 쪼개지면 숫자 카드가 망가진다.
+        result = layout.fit("가나다라", self.metrics, 20.0, 999.0, [10, 5], max_lines=1)
+        assert result.size == 5
+        assert result.lines == ["가나다라"]
+
+    def test_max_lines_none_allows_wrapping(self):
+        result = layout.fit("가나다라", self.metrics, 20.0, 999.0, [10, 5])
+        assert result.size == 10
+
+    def test_max_lines_falls_back_when_impossible(self):
+        result = layout.fit("가나다라마바사", self.metrics, 10.0, 999.0, [10, 5], max_lines=1)
+        assert result.size == 5  # 어느 크기로도 한 줄에 못 넣으면 가장 작은 것
 
     def test_empty_ladder_raises(self):
         with pytest.raises(ValueError):
@@ -231,3 +260,29 @@ class TestRender:
         from capcut_auto.cardnews import render_card
 
         assert render_card(Card(body="제목 없는 카드"), style, "").size == (1080, 1350)
+
+    def test_stat_number_never_wraps(self, style):
+        from capcut_auto.cardnews import layout as lay, render
+
+        # 렌더러가 숫자 제목에 한 줄 제한을 실제로 걸고 있는지.
+        fitted = lay.fit(
+            "2,000만원",
+            render._metrics(style.bold, style.layout.title_line_spacing),
+            style.size.width - 2 * render._px(style, style.layout.margin),
+            9999.0,
+            render._sizes(style, style.layout.stat_max, style.layout.stat_min),
+            max_lines=1,
+        )
+        assert len([l for l in fitted.lines if l]) == 1
+
+    def test_source_only_on_the_last_card(self, style, tmp_path):
+        from capcut_auto.cardnews import build_style, render_deck
+        from dataclasses import replace
+
+        styled = replace(style, source="자료: 통계청")
+        deck = script.parse("# 표지\n---\n둘째\n---\n@마무리\n끝")
+        first, _, last = render_deck(deck, tmp_path, styled)
+        plain = render_deck(deck, tmp_path / "plain", style)
+        # 출처가 붙은 마지막 장만 원본과 달라야 한다.
+        assert first.read_bytes() == plain[0].read_bytes()
+        assert last.read_bytes() != plain[2].read_bytes()

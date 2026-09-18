@@ -57,6 +57,9 @@ class Layout:
     title_min: float = 0.046
     body_max: float = 0.052
     body_min: float = 0.030
+    # 숫자 강조 카드 — 수치 하나만 크게 박는다. 제목보다 훨씬 크다.
+    stat_max: float = 0.230
+    stat_min: float = 0.090
     # 큰 제목을 본문과 같은 간격으로 벌리면 한 덩어리로 안 읽힌다.
     title_line_spacing: float = 1.16
     body_line_spacing: float = 1.38
@@ -66,6 +69,8 @@ class Layout:
     rule_height: float = 0.010
     rule_width: float = 0.150
     footer: float = 0.026
+    # 출처 한 줄 (마지막 장에만)
+    source: float = 0.019
 
 
 THEMES: dict[str, Theme] = {

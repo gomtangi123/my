@@ -138,6 +138,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     cards.add_argument("--font", help="글꼴 파일 경로 (.ttf/.otf). 기본은 자동 탐색")
     cards.add_argument("--handle", default="", help="카드 아래에 박을 계정명 (예: @myshop)")
+    cards.add_argument(
+        "--source",
+        default="",
+        help="이미지 출처 등. 마지막 장 아래에만 한 줄로 들어갑니다.",
+    )
     cards.add_argument("-q", "--quiet", action="store_true", help="진행 로그 숨기기")
     cards.set_defaults(handler=cmd_cardnews, command="cardnews")
 
@@ -559,6 +564,7 @@ def cmd_cardnews(args) -> int:
             cardnews.resolve_size(args.size),
             font=args.font,
             handle=args.handle,
+            source=args.source,
         )
     except cardnews.FontMissing as exc:
         print(f"\n오류: {exc}", file=sys.stderr)

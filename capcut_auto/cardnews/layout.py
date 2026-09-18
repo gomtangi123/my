@@ -93,8 +93,12 @@ def fit(
     max_width: float,
     max_height: float,
     sizes: list[int],
+    max_lines: int | None = None,
 ) -> Fit:
     """상자 안에 들어가는 가장 큰 글꼴 크기를 찾는다.
+
+    `max_lines`를 주면 줄 수까지 조건이 된다. 숫자 강조 카드의 수치처럼
+    쪼개지면 못 읽는 글에 쓴다 ("2,000만원"이 "2,000만"/"원"이 되면 곤란하다).
 
     `sizes`는 큰 것부터 내림차순으로 준다. 어느 것도 안 들어가면 마지막
     (가장 작은) 크기로 넘치는 채 돌려준다 — 여기서 예외를 던지면 대본
@@ -109,7 +113,8 @@ def fit(
         measure, line_height = metrics(size)
         lines = wrap(text, measure, max_width)
         result = Fit(size=size, lines=lines, line_height=line_height)
-        if result.height <= max_height:
+        filled = sum(1 for line in lines if line)
+        if result.height <= max_height and (max_lines is None or filled <= max_lines):
             return result
     assert result is not None
     return result

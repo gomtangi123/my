@@ -33,6 +33,8 @@ _KINDS = {
     "cover": "cover",
     "마무리": "outro",
     "outro": "outro",
+    "숫자": "stat",
+    "stat": "stat",
 }
 
 
@@ -66,6 +68,9 @@ def parse_block(lines: list[str], index: int) -> Card:
     title, body_lines = "", lines
     if lines and (m := _HEADING_RE.match(lines[0])):
         title, body_lines = m.group(1).strip(), _trim(lines[1:])
+    elif kind == "stat" and lines:
+        # 숫자 카드는 첫 줄이 곧 수치다. `#` 없이 써도 크게 박혀야 한다.
+        title, body_lines = lines[0].strip(), _trim(lines[1:])
     elif len(lines) == 1:
         # 한 줄짜리 카드는 문단이 아니라 한마디다. 크게 박아야 읽힌다.
         title, body_lines = lines[0].strip(), []

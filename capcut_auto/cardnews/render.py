@@ -73,6 +73,8 @@ class Style:
     handle: str = ""
     # 표지에 "넘겨보세요" 힌트를 넣을지
     swipe_hint: bool = True
+    # 이미지 출처 등. 마지막 장 아래에만 한 줄로 박는다.
+    source: str = ""
 
 
 def _px(style: Style, ratio: float) -> int:
@@ -84,13 +86,17 @@ def _sizes(style: Style, largest: float, smallest: float) -> list[int]:
     return layout_mod.ladder(_px(style, largest), _px(style, smallest))
 
 
-def render_card(card: Card, style: Style, page: str = "") -> "object":
+def render_card(
+    card: Card, style: Style, page: str = "", is_last: bool = False
+) -> "object":
     """카드 한 장을 Pillow Image로. 저장은 호출부가 한다."""
     Image, ImageDraw, _ = _require_pillow()
     lay = style.layout
     width, height = style.size.width, style.size.height
     bg, fg = style.theme.colors(card.kind)
     accent, _ = style.theme.marks(card.kind)
+    # 숫자 카드는 수치 자체가 강조라, 제목을 강조색으로 그리고 밑줄은 뺀다.
+    title_fill = accent if card.kind == "stat" else fg
 
     image = Image.new("RGB", (width, height), bg)
     draw = ImageDraw.Draw(image)
@@ -101,12 +107,11 @@ def render_card(card: Card, style: Style, page: str = "") -> "object":
     top = margin
     box_h = height - margin - footer_h - top
 
-    centered = card.kind in ("cover", "outro")
-    title_range = (
-        (lay.cover_title_max, lay.cover_title_min)
-        if card.kind == "cover"
-        else (lay.title_max, lay.title_min)
-    )
+    centered = card.kind in ("cover", "outro", "stat")
+    title_range = {
+        "cover": (lay.cover_title_max, lay.cover_title_min),
+        "stat": (lay.stat_max, lay.stat_min),
+    }.get(card.kind, (lay.title_max, lay.title_min))
 
     blocks: list[tuple[layout_mod.Fit, str, bool]] = []  # (맞춘 글, 글꼴 경로, 굵게)
     if card.title.strip():
@@ -118,6 +123,7 @@ def render_card(card: Card, style: Style, page: str = "") -> "object":
                     box_w,
                     box_h if not card.body.strip() else box_h * 0.62,
                     _sizes(style, *title_range),
+                    max_lines=1 if card.kind == "stat" else None,
                 ),
                 style.bold,
                 True,
@@ -141,7 +147,11 @@ def render_card(card: Card, style: Style, page: str = "") -> "object":
         )
 
     gap = _px(style, lay.gap)
-    rule_h = _px(style, lay.rule_height) if centered and card.title.strip() else 0
+    rule_h = (
+        _px(style, lay.rule_height)
+        if card.kind in ("cover", "outro") and card.title.strip()
+        else 0
+    )
     rule_gap = gap if rule_h else 0
     total = sum(b[0].height for b in blocks) + gap * (len(blocks) - 1) + rule_h + rule_gap
     y = top + max(0.0, (box_h - total) / 2) if centered else float(top)
@@ -157,7 +167,7 @@ def render_card(card: Card, style: Style, page: str = "") -> "object":
                     (x, y + row * fitted.line_height),
                     line,
                     font=font,
-                    fill=fg,
+                    fill=title_fill if is_title else fg,
                     anchor=anchor,
                 )
         y += fitted.height
@@ -173,11 +183,13 @@ def render_card(card: Card, style: Style, page: str = "") -> "object":
         if i < len(blocks) - 1:
             y += gap
 
-    _draw_footer(draw, style, card, page)
+    _draw_footer(draw, style, card, page, is_last)
     return image
 
 
-def _draw_footer(draw, style: Style, card: Card, page: str) -> None:
+def _draw_footer(
+    draw, style: Style, card: Card, page: str, is_last: bool = False
+) -> None:
     lay = style.layout
     accent, muted = style.theme.marks(card.kind)
     margin = _px(style, lay.margin)
@@ -208,6 +220,17 @@ def _draw_footer(draw, style: Style, card: Card, page: str) -> None:
             (margin, baseline), style.handle, font=font, fill=muted, anchor="ls"
         )
 
+    # 출처는 마지막 장에만. 매 장에 넣으면 그냥 지저분하다.
+    if is_last and style.source:
+        small = _font(style.regular, _px(style, lay.source))
+        draw.text(
+            (style.size.width / 2, baseline - _px(style, lay.footer) * 1.9),
+            style.source,
+            font=small,
+            fill=muted,
+            anchor="ms",
+        )
+
 
 def render_deck(
     deck: Deck,
@@ -229,7 +252,7 @@ def render_deck(
     paths: list[Path] = []
     for card in deck.cards:
         page = f"{card.index + 1}/{total}" if total > 1 else ""
-        image = render_card(card, style, page)
+        image = render_card(card, style, page, is_last=card.index == total - 1)
         path = out_dir / f"{card.index + 1:02d}.png"
         image.save(path, "PNG", optimize=True)
         paths.append(path)
@@ -242,6 +265,7 @@ def build_style(
     size: Size,
     font: str | None = None,
     handle: str = "",
+    source: str = "",
     layout: Layout | None = None,
 ) -> Style:
     regular, bold = fonts.find(font)
@@ -252,6 +276,7 @@ def build_style(
         regular=str(regular),
         bold=str(bold),
         handle=handle,
+        source=source,
     )
 
 
