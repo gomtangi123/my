@@ -3,6 +3,21 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 4단계: Elo + Dixon-Coles 모델
+
+```bash
+cd football
+python -m backend.models.evaluate        # walk-forward 검증 → backend/models/REPORT.md, calibration.png 생성 (약 2~3분)
+```
+
+- `backend/models/elo.py`: 모든 대회를 하나로 묶은 Elo(ACL로 K리그·J1 등 비교), 홈 어드밴티지, 시즌 간 평균 회귀, 골 차 가중치.
+  레이팅 차이 → 승/무/패 확률은 순서형 로지스틱으로 변환 (평가 시즌 전 데이터로만 계수 추정)
+- `backend/models/dixon_coles.py`: 팀별 공격·수비 + 홈 어드밴티지 + 저득점 보정(rho) + 시간 감쇠(반감기 약 1년), 최근 2년 경기로 학습.
+  0~10골 스코어 확률 행렬 → 승무패·오버/언더 2.5·양팀득점·가장 가능성 높은 스코어
+- 결과 요약 (2026-11-25, 리그 경기 9,683개): Dixon-Coles Log loss 1.011, Elo 1.012, 리그 평균 1.077 → 두 모델 모두 기준선보다 좋음.
+  배당 내재 확률(0.975)보다는 나쁨(정상 — 배당에는 부상·라인업 등 시장 정보가 반영됨). K리그1은 모델과 리그 평균 차이가 거의 없음.
+  자세한 표·보정 그래프는 [backend/models/REPORT.md](backend/models/REPORT.md)
+
 ## 3단계: 기본 통계 + 피처
 
 ```bash

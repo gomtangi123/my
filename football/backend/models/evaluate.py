@@ -123,7 +123,7 @@ def predict_dc(df: pd.DataFrame, leagues: dict, tests: dict[str, list[str]], log
         if test.empty:
             continue
         weeks = test["kickoff_utc"].dt.tz_convert("UTC").dt.floor("D") - pd.to_timedelta(
-            test["kickoff_utc"].dt.weekday, unit="D")
+            test["kickoff_utc"].dt.day_of_week, unit="D")
         n_fit = 0
         for week_start, block in test.groupby(weeks):
             model = DixonColes()
