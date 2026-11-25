@@ -22,6 +22,8 @@ class LeagueOut(BaseModel):
     has_match_stats: bool = Field(description="슈팅·코너 등 경기 통계 제공 여부 — false면 화면에서 숨김")
     has_xg: bool = Field(description="xG 제공 여부 — false면 화면에서 숨김")
     has_standings: bool
+    tiebreak: list[str] = Field(description="순위 결정 순서 (points/gd/gf)")
+    has_split: bool = Field(False, description="스플릿 리그 여부 (정규 라운드 후 상·하위 그룹 분리)")
 
 
 class StandingRow(BaseModel):
@@ -36,6 +38,7 @@ class StandingRow(BaseModel):
     goal_diff: int
     points: int
     form: str = Field(description="최근 5경기, 예: '승승무패승'")
+    group: str | None = Field(None, description="스플릿 리그의 그룹 (K리그1: A=파이널 A, B=파이널 B). 스플릿 전이면 null")
 
 
 class LeagueAverages(BaseModel):

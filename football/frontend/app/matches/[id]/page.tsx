@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Card, Stat } from "@/components/Card";
 import { FormChips } from "@/components/FormChips";
 import { ProbBar } from "@/components/ProbBar";
 import { ScoreHeatmap } from "@/components/ScoreHeatmap";
@@ -10,15 +11,6 @@ import { kst, num, pct, teamName } from "@/lib/format";
 export const dynamic = "force-dynamic";
 
 const MODEL_KO: Record<string, string> = { dixon_coles: "Dixon-Coles", elo: "Elo" };
-
-function Card({ title, children }: { title?: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      {title && <h2 className="mb-3 text-sm font-bold text-slate-700">{title}</h2>}
-      {children}
-    </section>
-  );
-}
 
 type Row = { label: string; get: (s: ComparisonSide) => number | null | undefined; fmt: (v: number | null | undefined) => string; higherBetter?: boolean };
 
@@ -117,11 +109,11 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           {d.neutral_venue && " · 중립 경기"}
         </p>
         <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-          <div className="flex flex-col items-center gap-1 text-center">
+          <Link href={`/teams/${m.home.id}`} className="flex flex-col items-center gap-1 text-center">
             <TeamBadge team={m.home} size={52} />
             <span className="text-sm font-semibold leading-tight">{homeName}</span>
             {m.home.name_ko && <span className="text-[11px] text-slate-400">{m.home.name}</span>}
-          </div>
+          </Link>
           <div className="text-center">
             {finished ? (
               <span className="text-3xl font-bold tabular-nums">
@@ -132,11 +124,11 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
             )}
             {finished && <p className="text-xs text-slate-400">종료{m.decided_by === "extra_time" ? " (연장)" : m.decided_by === "penalties" ? " (승부차기)" : ""}</p>}
           </div>
-          <div className="flex flex-col items-center gap-1 text-center">
+          <Link href={`/teams/${m.away.id}`} className="flex flex-col items-center gap-1 text-center">
             <TeamBadge team={m.away} size={52} />
             <span className="text-sm font-semibold leading-tight">{awayName}</span>
             {m.away.name_ko && <span className="text-[11px] text-slate-400">{m.away.name}</span>}
-          </div>
+          </Link>
         </div>
       </section>
 
@@ -235,16 +227,6 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
           지난 경기 예측이 얼마나 맞았는지 보기 →
         </Link>
       </Card>
-    </div>
-  );
-}
-
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="text-xl font-bold tabular-nums">{value}</p>
-      {sub && <p className="text-[11px] text-slate-400">{sub}</p>}
     </div>
   );
 }

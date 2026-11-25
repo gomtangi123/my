@@ -146,3 +146,49 @@ def test_rest_days_and_congestion():
     assert stats.matches_in_last(df, 1, as_of, days=14) == 2
     f = build_match_features(df).set_index("match_id")
     assert f.loc[3, "h_rest_days"] == pytest.approx(7) and f.loc[3, "h_games_14d"] == 2
+
+
+# ── 리그별 순위 규칙 (K리그: 다득점 우선, 스플릿) ──
+
+def test_tiebreak_goals_scored_before_goal_difference():
+    # 1팀: 1승(1-0) → 승점 3, 득실 +1, 득점 1 / 2팀: 1승(4-3) → 승점 3, 득실 +1... 같게 만들고 득점만 다르게
+    df = mk([(1, 0, 1, 3, 1, 0), (2, 0, 2, 4, 4, 2), (3, 7, 5, 6, 3, 0)])
+    # 1팀: +1, 득점1 / 2팀: +2, 득점4 / 5팀: +3, 득점3
+    eu = stats.standings(df, "L", "2025-26")
+    kl = stats.standings(df, "L", "2025-26", rules={"tiebreak": ["points", "gf", "gd"]})
+    assert list(eu["team_id"][:3]) == [5, 2, 1]  # 득실차 우선
+    assert list(kl["team_id"][:3]) == [2, 5, 1]  # 다득점 우선
+
+
+def split_league(after_games=3):
+    """4팀, 팀당 3경기(정규) 후 상위 2팀 = A. 그 뒤 B팀이 크게 이겨 승점으로 A팀을 앞질러도 순위는 A 아래."""
+    rows = [
+        (1, 0, 1, 2, 3, 0), (2, 0, 3, 4, 3, 0),   # 1, 3 승
+        (3, 7, 1, 3, 1, 0), (4, 7, 2, 4, 1, 0),   # 1, 2 승
+        (5, 14, 1, 4, 1, 0), (6, 14, 3, 2, 2, 0),  # 정규 끝: 1팀 9점, 3팀 6점 → A = {1, 3}, B = {2, 4}
+        (7, 21, 2, 4, 5, 0), (8, 21, 1, 3, 0, 0),  # 스플릿 후: 2팀 승리 → 6점, 3팀 7점
+        (9, 28, 2, 4, 5, 0), (10, 28, 1, 3, 0, 1),  # 2팀 9점(B), 3팀 10점, 1팀 10점
+        (11, 35, 4, 2, 0, 5), (12, 35, 3, 1, 0, 0),  # 2팀 12점(B) > ... A팀 중 하나보다 많아짐
+    ]
+    return mk(rows)
+
+
+def test_split_keeps_group_a_above_group_b():
+    df = split_league()
+    rules = {"split": {"after_games": 3, "top": 2}}
+    t = stats.standings(df, "L", "2025-26", rules=rules).set_index("team_id")
+    assert t.loc[2, "points"] > min(t.loc[1, "points"], t.loc[3, "points"])  # B팀 승점이 A팀보다 많아도
+    assert t.loc[1, "group"] == "A" and t.loc[3, "group"] == "A" and t.loc[2, "group"] == "B"
+    assert t.loc[2, "rank"] == 3 and {t.loc[1, "rank"], t.loc[3, "rank"]} == {1, 2}
+    # 정규 라운드가 끝나기 전 시점이면 그룹 없음
+    early = stats.standings(df, "L", "2025-26", as_of=T0 + timedelta(days=10), rules=rules)
+    assert early["group"].isna().all()
+    # 홈/원정 표에는 스플릿을 적용하지 않는다
+    assert stats.standings(df, "L", "2025-26", venue="home", rules=rules)["group"].isna().all()
+
+
+def test_split_ignores_source_round_labels():
+    df = split_league()
+    df["round"] = "1"  # 소스가 라운드 번호를 엉망으로 줘도 경기 순서로 판단
+    t = stats.standings(df, "L", "2025-26", rules={"split": {"after_games": 3, "top": 2}}).set_index("team_id")
+    assert t.loc[2, "group"] == "B"

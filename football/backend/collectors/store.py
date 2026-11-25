@@ -12,6 +12,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -33,6 +34,7 @@ class StoreReport:
     unchanged: int = 0
     teams_created: list[str] = field(default_factory=list)
     teams_linked: list[str] = field(default_factory=list)  # 다른 소스 팀과 이름으로 연결된 경우 (확인용)
+    duplicates_skipped: list[str] = field(default_factory=list)  # 홈/원정만 바뀐 중복 경기 (소스 오류)
 
     def merge(self, o: "StoreReport") -> None:
         self.inserted += o.inserted
@@ -40,6 +42,7 @@ class StoreReport:
         self.unchanged += o.unchanged
         self.teams_created += o.teams_created
         self.teams_linked += o.teams_linked
+        self.duplicates_skipped += o.duplicates_skipped
 
 
 class Store:
@@ -95,8 +98,10 @@ class Store:
             report.teams_created.append(display)
         if self.s.scalar(select(TeamAlias.id).where(TeamAlias.source == source, TeamAlias.alias == name)) is None:
             self.s.add(TeamAlias(team_id=team_id, source=source, alias=name))
+        # 팀당 소스별 외부 ID는 하나만 둔다 (이미 있으면 처음 것을 유지 — 소스가 ID를 바꿔도 수집이 멈추지 않게)
         if ext_id and self.s.scalar(select(ExternalId.id).where(
-                ExternalId.entity_type == "team", ExternalId.source == source, ExternalId.external_id == ext_id)) is None:
+                ExternalId.entity_type == "team", ExternalId.source == source,
+                (ExternalId.external_id == ext_id) | (ExternalId.entity_id == team_id))) is None:
             self.s.add(ExternalId(entity_type="team", entity_id=team_id, source=source, external_id=ext_id))
         self.s.flush()
         self._team_cache[ck] = team_id
@@ -132,6 +137,12 @@ class Store:
             ht_away_goals=m.ht_away_goals, result_90=m.result_90, decided_by=m.decided_by, referee=m.referee,
         )
         if row is None:
+            # 소스 데이터 오류: 같은 시각, 같은 두 팀 경기가 홈/원정만 바뀌어 또 들어오는 경우 → 중복으로 보고 버린다
+            swapped = self.s.scalar(select(Match.id).where(Match.season_id == se.id, Match.home_team_id == away,
+                                                           Match.away_team_id == home, Match.kickoff_utc == m.kickoff_utc))
+            if swapped is not None:
+                report.duplicates_skipped.append(f"{m.source}:{m.external_id} {m.home_name} vs {m.away_name} ({m.kickoff_utc:%Y-%m-%d})")
+                return
             row = Match(**fields)
             self.s.add(row)
             self.s.flush()
@@ -173,6 +184,48 @@ class Store:
                 setattr(row, k, v)
 
     # ── 정리 ──
+    DUP_WINDOW = timedelta(hours=36)  # 같은 두 팀이 이 안에 두 번 경기할 수는 없다
+
+    def find_near_duplicates(self) -> list[tuple[int, int]]:
+        """같은 시즌에서 같은 두 팀(홈/원정 무관)의 경기가 36시간 안에 두 번 있는 경우 (먼저 들어온 id, 나중 id)."""
+        a, b = Match.__table__.alias("a"), Match.__table__.alias("b")
+        same_pair = (((a.c.home_team_id == b.c.home_team_id) & (a.c.away_team_id == b.c.away_team_id))
+                     | ((a.c.home_team_id == b.c.away_team_id) & (a.c.away_team_id == b.c.home_team_id)))
+        rows = self.s.execute(select(a.c.id, b.c.id, a.c.kickoff_utc, b.c.kickoff_utc)
+                              .join(b, (a.c.season_id == b.c.season_id) & same_pair & (a.c.id < b.c.id))).all()
+        return [(x, y) for x, y, ta, tb in rows if abs(ta - tb) <= self.DUP_WINDOW]
+
+    def remove_swapped_duplicates(self, log_path=None) -> list[int]:
+        """소스 데이터 오류로 두 번 들어간 경기 중 나중에 들어온 쪽을 지운다 (통계·배당·예측·외부ID 포함).
+        어느 쪽이 맞는지는 알 수 없으므로 먼저 들어온 기록을 남기고, 지운 내용을 data_quality.log 에 남긴다."""
+        from backend.config import FOOTBALL_ROOT
+        from backend.db.schema import Prediction
+
+        pairs = self.find_near_duplicates()
+        log_path = log_path or FOOTBALL_ROOT / "data" / "data_quality.log"
+        removed = []
+        for keep_id, drop_id in pairs:
+            if drop_id in removed:
+                continue
+            keep, drop = self.s.get(Match, keep_id), self.s.get(Match, drop_id)
+            if keep is None or drop is None:
+                continue
+            describe = lambda m: (f"#{m.id} {m.kickoff_utc:%Y-%m-%d %H:%M}Z 홈{m.home_team_id} {m.home_goals}-{m.away_goals} "  # noqa: E731
+                                  f"원정{m.away_team_id} [{m.status}]")
+            conflict = (keep.result_90 and drop.result_90 and
+                        {"H": "A", "A": "H", "D": "D"}[drop.result_90] != keep.result_90
+                        if keep.home_team_id == drop.away_team_id else keep.result_90 != drop.result_90)
+            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now(timezone.utc):%Y-%m-%dT%H:%M}Z 중복 경기 삭제: 남김 {describe(keep)} / 삭제 {describe(drop)}"
+                        + (" — 결과가 서로 다름, 확인 필요" if conflict else "") + "\n")
+            for model in (MatchTeamStats, MatchOdds, Prediction):
+                self.s.query(model).filter(model.match_id == drop_id).delete()
+            self.s.query(ExternalId).filter(ExternalId.entity_type == "match", ExternalId.entity_id == drop_id).delete()
+            self.s.query(Match).filter(Match.id == drop_id).delete()
+            removed.append(drop_id)
+        return removed
+
     def mark_stale_scheduled(self, now: datetime | None = None, grace: timedelta = timedelta(days=3)) -> int:
         """시작 시간이 한참 지났는데 결과가 없는 일정은 연기된 것으로 표시한다 (일정이 바뀐 경기)."""
         now = now or datetime.now(timezone.utc)
@@ -185,4 +238,5 @@ class Store:
 def summarize(report: StoreReport) -> str:
     created = Counter(report.teams_created)
     return (f"신규 {report.inserted} / 갱신 {report.updated} / 변화 없음 {report.unchanged} 경기, "
-            f"새 팀 {len(created)}개, 이름으로 연결된 팀 {len(report.teams_linked)}개")
+            f"새 팀 {len(created)}개, 이름으로 연결된 팀 {len(report.teams_linked)}개"
+            + (f", 중복 경기 {len(report.duplicates_skipped)}개 제외" if report.duplicates_skipped else ""))

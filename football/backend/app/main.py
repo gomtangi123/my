@@ -61,7 +61,9 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
         return S.LeagueOut(key=key, name_ko=lg.name_ko, type=lg.type, region=lg.region, seasons=seasons,
                            current_season=seasons[-1] if seasons else None,
                            has_match_stats=bool(m["h_shots"].notna().any()), has_xg=bool(m["h_xg"].notna().any()),
-                           has_standings=lg.type == "league")
+                           has_standings=lg.type == "league",
+                           tiebreak=lg.standings.get("tiebreak") or stats.DEFAULT_TIEBREAK,
+                           has_split=bool(lg.standings.get("split")))
 
     def preds_for(c: DataCache, match_id: int) -> list[dict]:
         return c.pred_by_match.get(int(match_id), [])
@@ -127,10 +129,11 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
         season = season or lo.current_season
         if season not in lo.seasons:
             raise HTTPException(404, "해당 시즌이 없습니다")
-        t = stats.standings(c.matches, key, season, venue=venue)
+        t = stats.standings(c.matches, key, season, venue=venue, rules=leagues_cfg[key].standings)
         rows = [S.StandingRow(rank=r["rank"], team=team_ref(c, r["team_id"]), played=r["played"], won=r["won"],
                               drawn=r["drawn"], lost=r["lost"], goals_for=r["gf"], goals_against=r["ga"],
-                              goal_diff=r["gd"], points=r["points"], form=r["form"].translate(WDL_KO))
+                              goal_diff=r["gd"], points=r["points"], form=r["form"].translate(WDL_KO),
+                              group=r.get("group"))
                 for r in t.to_dict("records")]
         m = c.matches[(c.matches["league_key"] == key) & (c.matches["season_label"] == season) & (c.matches["status"] == "finished")]
         n = len(m)
@@ -252,18 +255,20 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
         if not league_m.empty:
             last = league_m.sort_values("kickoff_utc").iloc[-1]
             lkey, season = last["league_key"], str(last["season_label"])
-            t = stats.standings(df, lkey, season)
+            t = stats.standings(df, lkey, season, rules=leagues_cfg[lkey].standings)
             row = t[t["team_id"] == team_id]
             if not row.empty:
                 x = row.iloc[0]
                 standing = S.StandingRow(rank=int(x["rank"]), team=team_ref(c, team_id), played=int(x["played"]),
                                          won=int(x["won"]), drawn=int(x["drawn"]), lost=int(x["lost"]),
                                          goals_for=int(x["gf"]), goals_against=int(x["ga"]), goal_diff=int(x["gd"]),
-                                         points=int(x["points"]), form=x["form"].translate(WDL_KO))
-            split = stats.home_away_split(df, team_id, lkey, season)
+                                         points=int(x["points"]), form=x["form"].translate(WDL_KO),
+                                         group=x.get("group"))
+            split = stats.home_away_split(df, team_id, lkey, season, rules=leagues_cfg[lkey].standings)
             home, away = clean(split["home"]), clean(split["away"])
             for d in (home, away):
                 d.pop("team_id", None)
+                d.pop("group", None)
                 d["form"] = str(d.get("form", "")).translate(WDL_KO)
             prof = stats.team_profile(df, team_id, league_key=lkey, season_label=season)
         else:

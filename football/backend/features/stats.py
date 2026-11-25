@@ -17,15 +17,10 @@ from backend.features.data import STAT_COLS, before, team_rows
 POINTS = {"W": 3, "D": 1, "L": 0}
 
 
-def standings(df: pd.DataFrame, league_key: str, season_label: str, as_of=None, venue: str = "all") -> pd.DataFrame:
-    """순위표. 리그 경기는 연장이 없으므로 실제 스코어로 승점 계산. venue: all/home/away."""
-    m = before(df[(df["league_key"] == league_key) & (df["season_label"] == season_label)], as_of)
-    teams = pd.unique(pd.concat([df.loc[(df["league_key"] == league_key) & (df["season_label"] == season_label), c]
-                                 for c in ("home_id", "away_id")]))
-    names = dict(zip(df["home_id"], df["home_name"])) | dict(zip(df["away_id"], df["away_name"]))
-    names_ko = {}
-    if "home_name_ko" in df:
-        names_ko = dict(zip(df["home_id"], df["home_name_ko"])) | dict(zip(df["away_id"], df["away_name_ko"]))
+DEFAULT_TIEBREAK = ["points", "gd", "gf"]
+
+
+def _table(m: pd.DataFrame, teams, venue: str, names: dict, names_ko: dict) -> pd.DataFrame:
     rows = []
     for t in teams:
         tr = team_rows(m, t)
@@ -40,7 +35,59 @@ def standings(df: pd.DataFrame, league_key: str, season_label: str, as_of=None, 
         })
     table = pd.DataFrame(rows, columns=["team_id", "team", "team_ko", "played", "won", "drawn", "lost", "gf", "ga", "points", "form"])
     table["gd"] = table["gf"] - table["ga"]
-    table = table.sort_values(["points", "gd", "gf", "team"], ascending=[False, False, False, True]).reset_index(drop=True)
+    return table
+
+
+def _sort(table: pd.DataFrame, tiebreak: list[str]) -> pd.DataFrame:
+    keys = list(tiebreak) + ["team"]
+    return table.sort_values(keys, ascending=[False] * len(tiebreak) + [True]).reset_index(drop=True)
+
+
+def split_groups(season_matches: pd.DataFrame, as_of, after_games: int, top: int, tiebreak: list[str]) -> dict | None:
+    """스플릿 리그: 팀마다 시즌 경기를 시간 순으로 세어 after_games 번째까지를 정규 라운드로 본다
+    (소스의 라운드 번호는 믿지 않는다). 모든 팀이 정규 라운드를 마쳤으면 그 시점 상위 top 팀 = A, 나머지 = B."""
+    m = season_matches.sort_values(["kickoff_utc", "match_id"])
+    count: dict = {}
+    regular_ids = []
+    for r in m[["match_id", "home_id", "away_id"]].itertuples(index=False):
+        ch, ca = count.get(r.home_id, 0), count.get(r.away_id, 0)
+        if ch < after_games and ca < after_games:
+            regular_ids.append(r.match_id)
+        count[r.home_id], count[r.away_id] = ch + 1, ca + 1
+    reg = before(m[m["match_id"].isin(regular_ids)], as_of)
+    teams = pd.unique(pd.concat([m["home_id"], m["away_id"]]))
+    played = {t: len(team_rows(reg, t)) for t in teams}
+    if not played or min(played.values()) < after_games:
+        return None  # 아직 정규 라운드가 끝나지 않음
+    pre = _sort(_table(reg, teams, "all", {t: str(t) for t in teams}, {}), tiebreak)
+    top_ids = set(pre["team_id"].head(top))
+    return {t: ("A" if t in top_ids else "B") for t in teams}
+
+
+def standings(df: pd.DataFrame, league_key: str, season_label: str, as_of=None, venue: str = "all",
+              rules: dict | None = None) -> pd.DataFrame:
+    """순위표. 리그 경기는 연장이 없으므로 실제 스코어로 승점 계산. venue: all/home/away.
+
+    rules (config/leagues.yaml 의 standings): tiebreak 순서(기본 승점→득실차→다득점),
+    split 이 있으면 정규 라운드 후 상위 그룹(A)이 하위 그룹(B)보다 항상 위 (venue=all 일 때만).
+    """
+    rules = rules or {}
+    tiebreak = rules.get("tiebreak") or DEFAULT_TIEBREAK
+    season = df[(df["league_key"] == league_key) & (df["season_label"] == season_label)]
+    m = before(season, as_of)
+    teams = pd.unique(pd.concat([season[c] for c in ("home_id", "away_id")]))
+    names = dict(zip(df["home_id"], df["home_name"])) | dict(zip(df["away_id"], df["away_name"]))
+    names_ko = {}
+    if "home_name_ko" in df:
+        names_ko = dict(zip(df["home_id"], df["home_name_ko"])) | dict(zip(df["away_id"], df["away_name_ko"]))
+    table = _sort(_table(m, teams, venue, names, names_ko), tiebreak)
+    table["group"] = None
+    split = rules.get("split")
+    if split and venue == "all":
+        groups = split_groups(season, as_of, int(split["after_games"]), int(split["top"]), tiebreak)
+        if groups:
+            table["group"] = table["team_id"].map(groups)
+            table = table.sort_values("group", kind="stable").reset_index(drop=True)  # A 먼저, 그룹 안 순서는 유지
     table.insert(0, "rank", range(1, len(table) + 1))
     return table
 
@@ -108,8 +155,9 @@ def team_profile(df: pd.DataFrame, team_id: int, as_of=None, last_n: int | None 
     return out
 
 
-def home_away_split(df: pd.DataFrame, team_id: int, league_key: str, season_label: str, as_of=None) -> dict:
-    return {v: standings(df, league_key, season_label, as_of, venue=v).set_index("team_id").loc[team_id].to_dict()
+def home_away_split(df: pd.DataFrame, team_id: int, league_key: str, season_label: str, as_of=None,
+                    rules: dict | None = None) -> dict:
+    return {v: standings(df, league_key, season_label, as_of, venue=v, rules=rules).set_index("team_id").loc[team_id].to_dict()
             for v in ("home", "away")}
 
 

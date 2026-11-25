@@ -4,6 +4,9 @@
 #   실제 리그 ID는 0단계 조사 스크립트(backend/scripts/survey_api_football.py)가 찾아서
 #   README와 data/survey/에 기록한다. 확인된 ID는 api_football.id 에 채워 넣는다.
 # priority: 호출 한도가 부족할 때 낮은 숫자부터 먼저 수집한다.
+# standings: 순위 규칙 (없으면 승점 → 득실차 → 다득점). tiebreak 는 points/gd/gf 순서 목록,
+#   split 은 스플릿 리그용 {after_games: 정규 라운드 팀당 경기 수, top: 상위 그룹 팀 수}.
+#   상대 전적으로 동점을 가르는 리그(라리가·세리에 A 등)는 아직 반영하지 않는다.
 # 데이터 소스 (0단계 조사 결과, README 참고):
 #   football_data: Football-Data.co.uk CSV (code = 리그 파일 코드, extra_file = new/{이름}.csv 추가 리그 파일)
 #   thesportsdb:   TheSportsDB 리그 ID (K리그1·ACL 일정·결과)
@@ -135,6 +138,8 @@ leagues:
     season_format: calendar_year
     priority: 1
     api_football: {id: 292, match: {country: South-Korea, names: ["K League 1"]}}
+    # 동점 시 다득점이 득실차보다 먼저. 팀당 33경기 후 상위 6팀(파이널 A)은 승점과 관계없이 하위 6팀(파이널 B) 위에 놓인다.
+    standings: {tiebreak: [points, gf, gd], split: {after_games: 33, top: 6}}
     thesportsdb: {id: 4689}
 
   - key: jpn_j1_league

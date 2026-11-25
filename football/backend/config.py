@@ -28,6 +28,7 @@ class LeagueConfig:
     season_format: str
     priority: int
     sources: dict = field(default_factory=dict)  # {"football_data": {...}, "thesportsdb": {...}, "api_football": {...}}
+    standings: dict = field(default_factory=dict)  # 순위 규칙 {"tiebreak": [...], "split": {...}}
 
 
 def load_leagues(path: Path = CONFIG_DIR / "leagues.yaml", enabled_only: bool = False) -> list[LeagueConfig]:
@@ -42,6 +43,9 @@ def load_leagues(path: Path = CONFIG_DIR / "leagues.yaml", enabled_only: bool = 
         for name, allowed in (("type", VALID_TYPES), ("region", VALID_REGIONS), ("season_format", VALID_SEASON_FORMATS)):
             if item.get(name) not in allowed:
                 raise ValueError(f"leagues.yaml: {key}.{name} 값 {item.get(name)!r} 은 {sorted(allowed)} 중 하나여야 함")
+        tb = (item.get("standings") or {}).get("tiebreak")
+        if tb and (tb[0] != "points" or not set(tb) <= {"points", "gd", "gf"}):
+            raise ValueError(f"leagues.yaml: {key}.standings.tiebreak 은 points 로 시작하고 points/gd/gf 만 쓸 수 있음")
         sources = {s: item[s] for s in ("football_data", "thesportsdb", "api_football") if item.get(s)}
         lc = LeagueConfig(
             key=key,
@@ -53,6 +57,7 @@ def load_leagues(path: Path = CONFIG_DIR / "leagues.yaml", enabled_only: bool = 
             season_format=item["season_format"],
             priority=int(item.get("priority", 9)),
             sources=sources,
+            standings=item.get("standings") or {},
         )
         if not enabled_only or lc.enabled:
             out.append(lc)

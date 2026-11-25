@@ -232,3 +232,21 @@ def test_http_cache_retries_connection_errors(tmp_path):
     http = HttpCache(data_dir=tmp_path, session=sess, sleep=slept.append, min_interval={"x.test": 0})
     assert http.get("https://x.test/b", "x/b.csv") == b"ok" and sess.n == 2 and 10.0 in slept
     assert "ConnectionError" in (tmp_path / "http_calls.log").read_text()
+
+
+def test_swapped_duplicate_skipped_and_removed(store, tmp_path):
+    a = ts.event_to_match(ev(31, "Pohang Steelers", "Suwon FC", "1", "1", "FT", "2024-10-06T06:00:00"), ACL, "2026-27")
+    b = ts.event_to_match(ev(32, "Suwon FC", "Pohang Steelers", "1", "1", "FT", "2024-10-06T06:00:00"), ACL, "2026-27")
+    rep = store.save_matches([a, b])
+    assert rep.inserted == 1 and len(rep.duplicates_skipped) == 1
+    assert store.s.scalar(select(func.count(Match.id))) == 1
+    # 이미 DB에 들어가 있던 중복(과거 수집분)도 정리된다
+    from backend.db.schema import Match as M
+    first = store.s.scalars(select(M)).one()
+    store.s.add(M(season_id=first.season_id, kickoff_utc=first.kickoff_utc, home_team_id=first.away_team_id,
+                  away_team_id=first.home_team_id, status="finished", home_goals=1, away_goals=1, result_90="D"))
+    store.s.flush()
+    log = tmp_path / "dq.log"
+    assert len(store.remove_swapped_duplicates(log_path=log)) == 1
+    assert "중복 경기 삭제" in log.read_text()
+    assert store.s.scalar(select(func.count(Match.id))) == 1 and store.s.scalars(select(M)).one().id == first.id

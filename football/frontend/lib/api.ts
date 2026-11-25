@@ -12,6 +12,8 @@ export type League = {
   has_match_stats: boolean;
   has_xg: boolean;
   has_standings: boolean;
+  tiebreak: ("points" | "gd" | "gf")[];
+  has_split: boolean;
 };
 
 export type Probabilities = {
@@ -97,6 +99,70 @@ async function get<T>(path: string, revalidate = 60): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+
+export type StandingRow = {
+  rank: number;
+  team: TeamRef;
+  played: number;
+  won: number;
+  drawn: number;
+  lost: number;
+  goals_for: number;
+  goals_against: number;
+  goal_diff: number;
+  points: number;
+  form: string;
+  group: "A" | "B" | null;
+};
+
+export type Standings = {
+  league: League;
+  season: string;
+  venue: "all" | "home" | "away";
+  rows: StandingRow[];
+  averages: {
+    matches: number;
+    goals_per_match: number | null;
+    home_win_rate: number | null;
+    draw_rate: number | null;
+    away_win_rate: number | null;
+    over_2_5_rate: number | null;
+    btts_rate: number | null;
+    shots_per_team: number | null;
+    corners_per_team: number | null;
+    xg_per_team: number | null;
+  };
+  top_scorers: unknown[] | null;
+};
+
+export type TeamDetail = {
+  team: TeamRef;
+  league: League | null;
+  season: string | null;
+  standing: StandingRow | null;
+  form5: Form;
+  form10: Form;
+  home: Record<string, number | string | null> | null;
+  away: Record<string, number | string | null> | null;
+  profile: Profile;
+  goals_by_half: Profile;
+  recent_matches: MatchItem[];
+  upcoming_matches: MatchItem[];
+  injuries: unknown[];
+  players: unknown[];
+  data_notes: string[];
+};
+
+export type PerformanceRow = { model: string; matches: number; log_loss: number; brier: number; accuracy: number };
+
+export type ModelPerformance = {
+  overall: PerformanceRow[];
+  by_league: Record<string, PerformanceRow[]>;
+  calibration: Record<string, { bin: string; predicted: number; observed: number; count: number }[]>;
+  recent: { match: MatchItem; kind: "live" | "backtest"; predicted_pick: string; actual: string; hit: boolean }[];
+  notes: string[];
+};
+
 export const api = {
   leagues: () => get<League[]>("/api/leagues", 300),
   matches: (params: Record<string, string | undefined>) => {
@@ -104,4 +170,8 @@ export const api = {
     return get<MatchItem[]>(`/api/matches?${q}`);
   },
   match: (id: string | number) => get<MatchDetail>(`/api/matches/${id}`),
+  standings: (key: string, venue = "all", season?: string) =>
+    get<Standings>(`/api/leagues/${key}/standings?venue=${venue}${season ? `&season=${encodeURIComponent(season)}` : ""}`),
+  team: (id: string | number) => get<TeamDetail>(`/api/teams/${id}`),
+  performance: () => get<ModelPerformance>("/api/model-performance", 600),
 };

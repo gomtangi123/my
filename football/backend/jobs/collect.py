@@ -90,10 +90,15 @@ def run(command: str, league_keys: list[str] | None, seasons: int, today: date |
                 log.info("[%s] 완료: %s", lg.name_ko, summarize(rep))
                 for line in rep.teams_linked:
                     log.info("    팀 연결 확인 필요: %s", line)
+                for line in rep.duplicates_skipped:
+                    log.info("    중복 경기 제외: %s", line)
             except Exception:  # 한 대회가 실패해도 나머지는 계속
                 session.rollback()
                 log.exception("[%s] 실패", lg.name_ko)
                 failed.append(lg.key)
+        dups = store.remove_swapped_duplicates()
+        if dups:
+            log.info("홈/원정만 바뀐 중복 경기 %d개 삭제 (소스 데이터 오류): %s", len(dups), dups)
         stale = store.mark_stale_scheduled()
         named = apply_korean_names(session)
         session.commit()
