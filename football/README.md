@@ -3,6 +3,36 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 7단계: 자동화
+
+```bash
+cd football
+python -m backend.jobs.scheduler        # 계속 실행: 아래 일정대로 자동 작업 (한국 시간 기준)
+python -m backend.jobs.daily            # 전체 작업 한 번 수동 실행
+python -m backend.jobs.daily --light    # 가벼운 갱신 한 번 수동 실행
+```
+
+| 시각 (KST) | 작업 | 내용 |
+|---|---|---|
+| 매일 05:00 | 전체 | 모든 대회 결과·일정 갱신 → 중복 정리·한글 이름 → 앞으로 14일 예측 → (월요일) 모델 재검증·REPORT.md 갱신 |
+| 11:00 · 17:00 · 23:00 | 가벼운 갱신 | 유럽 리그 일정·결과 파일 + 예측 (주말 경기 일정이 주중에 늦게 올라오므로) |
+
+- **실패 처리**: 단계마다 최대 2번, 10분 간격으로 다시 시도. 그래도 실패하면 로그를 남기고 다음 단계로 넘어간다.
+  진행 중 시즌은 매번 전체를 다시 확인하므로, 하루 실패해도 다음 날 실행이 자동으로 따라잡는다.
+- 스케줄러를 켰을 때 마지막 전체 작업 성공이 26시간보다 오래됐으면 바로 한 번 실행한다 (서버가 꺼져 있던 경우).
+- 같은 작업이 겹쳐 돌지 않게 잠금 파일(`data/jobs/daily.lock`, 6시간 지나면 무효)을 쓴다.
+- 로그: `data/logs/daily_YYYYMMDD.log` / 상태: `data/jobs/status.json` / API: `GET /api/health`의 `jobs`
+- 스케줄러 대신 cron을 쓸 때 (둘 중 하나만):
+
+```bash
+# crontab -e
+CRON_TZ=Asia/Seoul
+0 5 * * *       cd /path/to/football && .venv/bin/python -m backend.jobs.daily
+0 11,17,23 * * * cd /path/to/football && .venv/bin/python -m backend.jobs.daily --light
+```
+
+- 이 저장소의 클라우드 작업 환경은 세션이 끝나면 사라지므로, 실제 자동 실행은 배포 서버(9단계)에서 켠다.
+
 ## 6단계: 프론트엔드 (Next.js + Tailwind + Recharts)
 
 ```bash

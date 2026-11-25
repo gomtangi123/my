@@ -349,10 +349,23 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
                  "Log loss·Brier는 낮을수록 좋음. 정답은 90분 결과 (연장·승부차기 경기는 무승부)"]
         return S.ModelPerformanceOut(overall=overall, by_league=by_league, calibration=calib, recent=recent, notes=notes)
 
-    @app.get("/api/health", include_in_schema=False)
+    @app.get("/api/health", summary="상태 (데이터 수, 자동 작업 결과)", tags=["운영"])
     def health():
+        import json
+
+        from backend.jobs.daily import STATUS_FILE
+
         c = data()
-        return {"ok": True, "matches": len(c.matches), "predictions": len(c.predictions)}
+        jobs = None
+        if STATUS_FILE.exists():
+            st = json.loads(STATUS_FILE.read_text(encoding="utf-8"))
+            jobs = {k: st.get(k) for k in ("last_success_full", "last_success_light")}
+            for mode in ("full", "light"):
+                last = st.get(f"last_{mode}")
+                if last:
+                    jobs[f"last_{mode}"] = {"started_at": last["started_at"], "ok": last["ok"],
+                                            "failed_steps": [x["name"] for x in last["steps"] if not x["ok"]]}
+        return {"ok": True, "matches": len(c.matches), "predictions": len(c.predictions), "jobs": jobs}
 
     return app
 
