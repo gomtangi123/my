@@ -2,7 +2,7 @@
 
 통계·피처 계산은 모두 이 DataFrame 위에서 한다. 컬럼:
   match_id, league_key, league_type, region, season_label, kickoff_utc(UTC, tz-aware),
-  home_id, away_id, home_name, away_name, status, hg, ag, ht_hg, ht_ag, result_90, decided_by, neutral,
+  home_id, away_id, home_name, away_name, home_name_ko, away_name_ko, status, hg, ag, ht_hg, ht_ag, result_90, decided_by, neutral,
   h_shots, a_shots, h_sot, a_sot, h_corners, a_corners, h_yellow, a_yellow, h_red, a_red, h_xg, a_xg
 """
 from __future__ import annotations
@@ -22,7 +22,8 @@ def load_matches(session: Session, league_keys: list[str] | None = None) -> pd.D
     q = (select(Match.id.label("match_id"), League.key.label("league_key"), League.type.label("league_type"),
                 League.region, Season.label.label("season_label"), Match.kickoff_utc,
                 Match.home_team_id.label("home_id"), Match.away_team_id.label("away_id"),
-                H.name.label("home_name"), A.name.label("away_name"), Match.status,
+                H.name.label("home_name"), A.name.label("away_name"),
+                H.name_ko.label("home_name_ko"), A.name_ko.label("away_name_ko"), Match.status,
                 Match.home_goals.label("hg"), Match.away_goals.label("ag"),
                 Match.ht_home_goals.label("ht_hg"), Match.ht_away_goals.label("ht_ag"),
                 Match.result_90, Match.decided_by, Match.neutral_venue.label("neutral"))

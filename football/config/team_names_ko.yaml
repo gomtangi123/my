@@ -1,0 +1,52 @@
+# 팀 한글 표기. 키는 데이터 소스에 나오는 팀 이름(별칭) 그대로, 값은 화면에 함께 보여줄 한글 이름.
+# 소스마다 표기가 달라도(예: "Man United" / "Manchester United") 같은 한글 이름을 적으면 된다.
+# 여기 없는 팀은 영문만 표시한다. 수집·DB 초기화 때 teams.name_ko 에 반영된다.
+
+# ── K리그1 (TheSportsDB 표기) ──
+Ulsan HD: 울산 HD
+Ulsan Hyundai: 울산 HD
+FC Seoul: FC 서울
+Jeonbuk Hyundai Motors: 전북 현대
+Pohang Steelers: 포항 스틸러스
+Gangwon FC: 강원 FC
+Gimcheon Sangmu: 김천 상무
+Daejeon Hana Citizen: 대전 하나시티즌
+Gwangju FC: 광주 FC
+Jeju SK: 제주 SK
+Jeju United: 제주 유나이티드
+FC Anyang: FC 안양
+Incheon United: 인천 유나이티드
+Bucheon FC 1995: 부천 FC 1995
+Suwon FC: 수원 FC
+Suwon Samsung Bluewings: 수원 삼성
+Daegu FC: 대구 FC
+Seongnam FC: 성남 FC
+
+# ── 잉글랜드 프리미어리그 (Football-Data.co.uk 표기) ──
+Arsenal: 아스널
+Aston Villa: 애스턴 빌라
+Bournemouth: 본머스
+Brentford: 브렌트퍼드
+Brighton: 브라이턴
+Burnley: 번리
+Chelsea: 첼시
+Coventry: 코번트리 시티
+Crystal Palace: 크리스털 팰리스
+Everton: 에버턴
+Fulham: 풀럼
+Hull: 헐 시티
+Ipswich: 입스위치 타운
+Leeds: 리즈 유나이티드
+Leicester: 레스터 시티
+Liverpool: 리버풀
+Luton: 루턴 타운
+Man City: 맨체스터 시티
+Man United: 맨체스터 유나이티드
+Newcastle: 뉴캐슬
+Nott'm Forest: 노팅엄 포리스트
+Sheffield United: 셰필드 유나이티드
+Southampton: 사우샘프턴
+Sunderland: 선덜랜드
+Tottenham: 토트넘
+West Ham: 웨스트햄
+Wolves: 울버햄프턴

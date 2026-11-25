@@ -9,6 +9,7 @@ DATABASE_URL 환경변수가 있으면 그걸 쓰고 (배포: postgresql+psycopg
 from __future__ import annotations
 
 import os
+import sqlite3
 import sys
 
 from sqlalchemy import create_engine, event, select
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from backend.config import FOOTBALL_ROOT, LeagueConfig, load_leagues
 from backend.db.schema import Base, ExternalId, League
+from backend.db.team_names import apply_korean_names
 
 
 def database_url() -> str:
@@ -28,11 +30,21 @@ def database_url() -> str:
 
 
 def make_engine(url: str | None = None) -> Engine:
-    engine = create_engine(url or database_url())
-    if engine.dialect.name == "sqlite":
+    url = url or database_url()
+    is_sqlite = url.startswith("sqlite")
+    # 잠겨 있으면 최대 30초 기다린다 (수집 작업이 쓰는 동안 다른 작업이 바로 실패하지 않게)
+    engine = create_engine(url, connect_args={"timeout": 30} if is_sqlite else {})
+    if is_sqlite:
+        in_memory = url in ("sqlite://", "sqlite:///:memory:")
+
         @event.listens_for(engine, "connect")
-        def _fk_on(dbapi_conn, _):  # SQLite는 외래키 검사가 기본으로 꺼져 있다
-            dbapi_conn.execute("PRAGMA foreign_keys=ON")
+        def _sqlite_pragmas(dbapi_conn, _):
+            dbapi_conn.execute("PRAGMA foreign_keys=ON")  # SQLite는 외래키 검사가 기본으로 꺼져 있다
+            if not in_memory:
+                try:  # 쓰는 중에도 읽기 가능 (API 서버 + 수집 작업 동시 실행). 한 번 바뀌면 DB 파일에 유지된다.
+                    dbapi_conn.execute("PRAGMA journal_mode=WAL")
+                except sqlite3.OperationalError:
+                    pass  # 다른 작업이 DB를 쓰는 중이면 전환을 다음 연결로 미룬다
     return engine
 
 
@@ -80,6 +92,7 @@ def init_db(url: str | None = None) -> Engine:
     Base.metadata.create_all(engine)
     with make_session_factory(engine)() as session:
         sync_leagues(session, load_leagues())
+        apply_korean_names(session)
         session.commit()
     return engine
 

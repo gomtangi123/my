@@ -23,6 +23,9 @@ def standings(df: pd.DataFrame, league_key: str, season_label: str, as_of=None, 
     teams = pd.unique(pd.concat([df.loc[(df["league_key"] == league_key) & (df["season_label"] == season_label), c]
                                  for c in ("home_id", "away_id")]))
     names = dict(zip(df["home_id"], df["home_name"])) | dict(zip(df["away_id"], df["away_name"]))
+    names_ko = {}
+    if "home_name_ko" in df:
+        names_ko = dict(zip(df["home_id"], df["home_name_ko"])) | dict(zip(df["away_id"], df["away_name_ko"]))
     rows = []
     for t in teams:
         tr = team_rows(m, t)
@@ -30,12 +33,12 @@ def standings(df: pd.DataFrame, league_key: str, season_label: str, as_of=None, 
             tr = tr[tr["is_home"] == (venue == "home")]
         res = pd.Series(np.where(tr["gf"] > tr["ga"], "W", np.where(tr["gf"] == tr["ga"], "D", "L")), index=tr.index)
         rows.append({
-            "team_id": t, "team": names.get(t), "played": len(tr),
+            "team_id": t, "team": names.get(t), "team_ko": names_ko.get(t), "played": len(tr),
             "won": int((res == "W").sum()), "drawn": int((res == "D").sum()), "lost": int((res == "L").sum()),
             "gf": int(tr["gf"].sum()), "ga": int(tr["ga"].sum()),
             "points": int(res.map(POINTS).sum()), "form": "".join(res.tail(5)),
         })
-    table = pd.DataFrame(rows, columns=["team_id", "team", "played", "won", "drawn", "lost", "gf", "ga", "points", "form"])
+    table = pd.DataFrame(rows, columns=["team_id", "team", "team_ko", "played", "won", "drawn", "lost", "gf", "ga", "points", "form"])
     table["gd"] = table["gf"] - table["ga"]
     table = table.sort_values(["points", "gd", "gf", "team"], ascending=[False, False, False, True]).reset_index(drop=True)
     table.insert(0, "rank", range(1, len(table) + 1))

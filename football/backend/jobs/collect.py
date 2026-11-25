@@ -26,6 +26,7 @@ from backend.collectors.thesportsdb import TheSportsDbAdapter
 from backend.config import LeagueConfig, load_leagues
 from backend.db.init_db import init_db, make_session_factory
 from backend.db.schema import League, Match, MatchTeamStats, Season
+from backend.db.team_names import apply_korean_names
 
 log = logging.getLogger("collect")
 
@@ -94,7 +95,10 @@ def run(command: str, league_keys: list[str] | None, seasons: int, today: date |
                 log.exception("[%s] 실패", lg.name_ko)
                 failed.append(lg.key)
         stale = store.mark_stale_scheduled()
+        named = apply_korean_names(session)
         session.commit()
+        if named:
+            log.info("한글 팀 이름 %d개 반영", named)
         if stale:
             log.info("시작 시간이 지났는데 결과 없는 경기 %d개 → postponed 처리", stale)
         print_summary(session)
