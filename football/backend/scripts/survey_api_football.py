@@ -103,7 +103,10 @@ def sample_fixture_stats(client: ApiFootballClient, league_id: int, season: dict
            "finished_ids": [f["fixture"]["id"] for f in sorted(finished, key=lambda f: f["fixture"]["date"])][-20:]}
     if not finished:
         return out
-    last = max(finished, key=lambda f: f["fixture"]["date"])
+    # 시즌 마지막 경기는 승강 플레이오프인 경우가 많아 통계가 빠질 수 있다 → 정규 라운드 중간 경기를 샘플로 쓴다
+    regular = [f for f in finished if "regular season" in str(f["league"].get("round", "")).casefold()] or finished
+    regular.sort(key=lambda f: f["fixture"]["date"])
+    last = regular[len(regular) // 2]
     out["sample_fixture"] = {
         "id": last["fixture"]["id"],
         "date_utc": last["fixture"]["date"],
@@ -198,7 +201,9 @@ def render(results: list[dict], status: dict | None, today: date, batch: dict | 
                      f"{', '.join(s['stat_types']) or '없음'} |")
     lines += ["", "### 여러 경기 묶음 조회 (`fixtures?ids=`)", ""]
     if batch is None:
-        lines.append("- 확인하지 못함 (종료 경기 샘플 없음 또는 호출 실패)")
+        lines.append("- 확인하지 못함 (종료 경기 샘플 없음)")
+    elif "error" in batch:
+        lines.append(f"- 사용 불가 — API 응답: `{batch['error']}` → 과거 경기 통계는 경기마다 1회씩 호출해야 함")
     else:
         pct = lambda v: f"{v * 100:.0f}%"
         ok = batch["returned"] == batch["requested"] and batch["with_statistics"] > 0.9
@@ -227,6 +232,7 @@ def write_readme(section: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true", help="enabled: false 후보 대회도 조사")
+    ap.add_argument("--season", type=int, help="샘플을 받을 시즌 연도 (무료 요금제는 접근 가능한 시즌만 됨)")
     ap.add_argument("--no-sample", action="store_true", help="경기 통계 샘플 호출 생략")
     args = ap.parse_args(argv)
 
@@ -260,6 +266,10 @@ def main(argv: list[str] | None = None) -> int:
             r.update(id=found["league"]["id"], api_name=found["league"]["name"], api_type=found["league"].get("type"),
                      seasons=summarize_seasons(found.get("seasons", []), today))
             latest = r["seasons"]["latest_started"]
+            if args.season is not None:
+                latest = next((x for x in found.get("seasons", []) if x.get("year") == args.season), None)
+                if latest is None:
+                    r["sample_error"] = f"{args.season} 시즌 없음"
             if latest and not args.no_sample:
                 try:
                     r["sample"] = sample_fixture_stats(client, r["id"], latest)
@@ -276,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
             batch = check_batch_fetch(client, sampled[0]["sample"]["finished_ids"])
             batch["league"] = sampled[0]["name_ko"]
         except (ApiError, QuotaGuardError) as e:
+            batch = {"error": str(e), "league": sampled[0]["name_ko"]}
             print(f"[경고] 묶음 조회 확인 실패: {e}", file=sys.stderr)
 
     SURVEY_JSON.parent.mkdir(parents=True, exist_ok=True)

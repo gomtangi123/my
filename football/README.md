@@ -9,7 +9,18 @@
 - [x] 대상 대회 목록: `config/leagues.yaml` (활성 13개 + 후보 4개)
 - [x] 요금제·호출 한도 정리 (아래 표 — 웹 검색 기준)
 - [x] 조사 스크립트 작성: 키만 있으면 실제 응답을 받아 아래 "조사 결과" 표를 자동으로 채운다
-- [ ] **실제 응답 확인 — API 키가 필요해서 아직 못 함**
+- [x] 실제 응답 확인 (2026-11-25, 무료 키로 약 60회 호출)
+- [ ] 마지막 확인 호출 중 API가 "계정 정지(suspended)" 응답을 줌 — 대시보드에서 원인 확인 필요
+
+### 핵심 결론 (실제 응답 기준)
+1. **13개 대회 모두 지원됨.** 경기 통계는 대부분 2014~2016 시즌부터 있고, K리그1은 2020 시즌부터로 표시됨.
+2. **무료 요금제는 2022~2024 시즌만 조회 가능.** 현재 시즌(2025-26 / 2026)을 요청하면
+   `"Free plans do not have access to this season, try from 2022 to 2024."` 응답.
+   → 무료로는 **다가오는 경기 일정·최근 결과를 받을 수 없어 예측 서비스를 운영할 수 없다.** 과거 데이터로 모델 개발·검증만 가능.
+3. **무료 요금제는 여러 경기 묶음 조회(`fixtures?ids=`) 불가** → 과거 경기 통계는 경기마다 1회씩 호출해야 함.
+4. **xG(`expected_goals`)**: 2024 시즌 정규 라운드 샘플에서 4대 리그·챔피언십·에레디비시·포르투갈·벨기에·튀르키예·J1리그는 값이 있었고,
+   스코틀랜드·ACL은 항목은 있으나 값이 없음(X), **K리그1은 해당 경기 통계 자체가 비어 있음(?)**. 경기 1개씩만 본 결과라 수집 단계에서 다시 확인한다.
+5. 부상 정보는 포르투갈·벨기에·스코틀랜드·K리그1·J1리그·ACL에서 제공되지 않음(최근 시즌 커버리지 플래그 기준).
 
 ### 요금제별 호출 한도
 
@@ -62,5 +73,56 @@ python -m pytest -q backend/tests
 ## API-Football 조사 결과
 
 <!-- SURVEY:BEGIN -->
-_아직 실행 전 — API 키를 넣고 조사 스크립트를 실행하면 이 자리에 표가 생깁니다._
+
+_자동 생성: 2026-11-25 — `python -m backend.scripts.survey_api_football`_
+
+- 현재 키의 요금제: **Free**, 하루 한도 100회, 오늘 사용 21회
+
+### 대회별 지원 여부·시즌 수
+
+| 대회 | API ID | API 대회명 | 시즌 수 | 범위 | 경기통계 있는 시즌 | 이벤트 | 라인업 | 선수기록 | 부상 | 배당 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 잉글랜드 프리미어리그 | 39 | Premier League | 17 | 2010~2026 | 2014~2026 (13) | O | O | O | O | O |
+| 스페인 라리가 | 140 | La Liga | 17 | 2010~2026 | 2014~2026 (13) | O | O | O | O | O |
+| 독일 분데스리가 | 78 | Bundesliga | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | O | O |
+| 이탈리아 세리에 A | 135 | Serie A | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | O | O |
+| 잉글랜드 챔피언십 | 40 | Championship | 16 | 2011~2026 | 2014~2026 (13) | O | O | O | O | O |
+| 네덜란드 에레디비시 | 88 | Eredivisie | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | O | O |
+| 포르투갈 프리메이라리가 | 94 | Primeira Liga | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | X | O |
+| 벨기에 프로리그 | 144 | Jupiler Pro League | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | X | O |
+| 튀르키예 쉬페르리그 | 203 | Süper Lig | 16 | 2011~2026 | 2015~2026 (12) | O | O | O | O | O |
+| 스코틀랜드 프리미어십 | 179 | Premiership | 17 | 2010~2026 | 2015~2026 (12) | O | O | O | X | O |
+| K리그1 | 292 | K League 1 | 11 | 2016~2026 | 2020~2026 (7) | O | O | O | X | O |
+| J1리그 | 98 | J1 League | 16 | 2012~2027 | 2015~2027 (13) | O | O | O | X | O |
+| AFC 챔피언스리그 엘리트 | 17 | AFC Champions League Elite | 11 | 2016~2026 | 2016~2026 (11) | O | O | O | X | O |
+
+> 이벤트~배당 열은 가장 최근에 시작한 시즌의 커버리지 플래그(`/leagues` 응답)입니다.
+
+### 실제 경기 통계 응답 확인 (xG 포함 여부)
+
+| 대회 | 시즌 | 경기 수 | 샘플 경기 (UTC) | xG | 받은 통계 항목 |
+|---|---|---|---|---|---|
+| 잉글랜드 프리미어리그 | 2024 | 380 | Bournemouth 1-0 Everton (2025-01-04) | O (1.84) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 스페인 라리가 | 2024 | 380 | Espanyol 2-1 Valladolid (2025-01-17) | O (1.01) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 독일 분데스리가 | 2024 | 308 | Eintracht Frankfurt 2-0 Borussia Dortmund (2025-01-17) | O (1.70) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 이탈리아 세리에 A | 2024 | 380 | Genoa 1-0 Parma (2025-01-12) | O (1.19) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 잉글랜드 챔피언십 | 2024 | 557 | Bristol City 3-0 Portsmouth (2024-12-29) | O (3.06) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 네덜란드 에레디비시 | 2024 | 321 | Heracles 1-1 Sparta Rotterdam (2025-01-11) | O (1.19) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 포르투갈 프리메이라리가 | 2024 | 308 | Benfica 4-0 Famalicao (2025-01-17) | O (4.11) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 벨기에 프로리그 | 2024 | 315 | Kortrijk 3-1 KV Mechelen (2024-11-29) | O (1.67) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 튀르키예 쉬페르리그 | 2024 | 342 | Hatayspor 1-1 Galatasaray (2025-01-17) | O (0.82) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| 스코틀랜드 프리미어십 | 2024 | 234 | Aberdeen 1-2 Ross County (2025-01-02) | X | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| K리그1 | 2024 | 232 | Jeonbuk Motors 2-2 Incheon United (2024-06-16) | ? | 없음 |
+| J1리그 | 2024 | 380 | Sanfrecce Hiroshima 1-1 Albirex Niigata (2024-06-26) | O (2.26) | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+| AFC 챔피언스리그 엘리트 | 2024 | 122 | Al Shorta 1-3 Al-Wasl FC (2024-11-26) | X | Shots on Goal, Shots off Goal, Total Shots, Blocked Shots, Shots insidebox, Shots outsidebox, Fouls, Corner Kicks, Offsides, Ball Possession, Yellow Cards, Red Cards, Goalkeeper Saves, Total passes, Passes accurate, Passes %, expected_goals, goals_prevented |
+
+### 여러 경기 묶음 조회 (`fixtures?ids=`)
+
+- 사용 불가 — API 응답: `fixtures 오류: {'plan': 'Free plans do not have access to the Ids parameter.'}` → 과거 경기 통계는 경기마다 1회씩 호출해야 함
+
+### 매일 갱신 예상 호출 수
+
+- 활성 대회 기준 하루 약 **41~85회** (경기 통계만 받으면 하한, 선수 기록·이벤트·라인업까지 받으면 상한)
+- 과거 시즌 일괄 수집은 경기 1개당 1~4회가 들어가므로 무료 요금제로는 여러 날에 나눠야 한다.
+
 <!-- SURVEY:END -->
