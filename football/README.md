@@ -3,6 +3,26 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 2단계: 데이터 수집기
+
+```bash
+cd football
+python -m backend.jobs.collect backfill --league eng_premier_league --seasons 5   # 리그 하나
+python -m backend.jobs.collect backfill --all --seasons 5                         # 활성 대회 전체
+python -m backend.jobs.collect daily                                              # 매일: 진행 중 시즌 + 다가오는 일정
+```
+
+- 어댑터: `backend/collectors/football_data.py`(유럽 10개 리그·J1), `backend/collectors/thesportsdb.py`(K리그1·ACL).
+  새 소스는 `RawMatch`를 만들어 내는 어댑터만 추가하면 된다 (DB 저장은 `store.py` 공통).
+- 원본은 `data/raw/`에 캐시. 종료된 시즌은 다시 받지 않고, 진행 중 시즌·일정은 12시간(일정 6시간)마다 새로 받는다.
+- 모든 다운로드는 `data/http_calls.log`에 기록. 429(호출 제한) 응답이면 서버가 알려준 시간만큼 쉬고 최대 3번 다시 시도.
+- TheSportsDB 무료 키는 30초에 약 12회를 넘으면 2분 차단 → 요청 간격 6초. K리그 한 시즌 약 40회 ≈ 4분.
+- 시간대: Football-Data.co.uk는 **영국 현지 시간**(실제 데이터로 확인: 여름 영국 15:00 경기가 15:00으로 기록), TheSportsDB `strTimestamp`는 UTC.
+- 연장전(AET)·승부차기 경기는 `result_90 = D`(90분 무승부), 스코어는 소스가 준 최종 스코어, `decided_by`로 구분.
+- 같은 팀이 두 소스에 나오면(예: J1 팀이 ACL에도) 이름이 정확히 같을 때 같은 팀으로 연결하고 로그에 "팀 연결 확인 필요"로 남긴다.
+  이름이 다르면 다른 팀으로 생긴다 → 별칭 정리 필요(로그·`teams` 표 확인).
+- 아직 없는 것: 부상·선수 기록(무료 소스에 없음), ACL 토너먼트 라운드(TheSportsDB 라운드 번호 체계 확인 필요).
+
 ## 1단계: 프로젝트 뼈대 + DB
 
 ```bash

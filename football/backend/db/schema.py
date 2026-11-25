@@ -144,6 +144,7 @@ class Match(Base):
     __table_args__ = (
         UniqueConstraint("season_id", "home_team_id", "away_team_id", "kickoff_utc"),
         CheckConstraint("home_team_id <> away_team_id", name="ck_match_distinct_teams"),
+        CheckConstraint("result_90 IS NULL OR result_90 IN ('H','D','A')", name="ck_match_result_90"),
     )
     id: Mapped[int] = mapped_column(primary_key=True)
     season_id: Mapped[int] = mapped_column(ForeignKey("seasons.id"), index=True)
@@ -155,9 +156,11 @@ class Match(Base):
     neutral_venue: Mapped[bool] = mapped_column(Boolean, default=False)  # True면 홈 어드밴티지 끔
     venue: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(16), default="scheduled")  # scheduled / finished / postponed / cancelled
-    # 90분 기준 스코어 (예측·평가 기준). 연장·승부차기는 별도 칸.
+    # 소스가 준 최종 스코어. 연장전(AET) 경기는 연장 득점이 포함될 수 있다 → decided_by 로 구분.
     home_goals: Mapped[int | None] = mapped_column(Integer)
     away_goals: Mapped[int | None] = mapped_column(Integer)
+    # 90분 결과 H/D/A — 승무패 예측·평가 기준. 연장·승부차기까지 간 경기는 90분 결과가 무승부(D).
+    result_90: Mapped[str | None] = mapped_column(String(1))
     ht_home_goals: Mapped[int | None] = mapped_column(Integer)
     ht_away_goals: Mapped[int | None] = mapped_column(Integer)
     decided_by: Mapped[str | None] = mapped_column(String(16))  # regular / extra_time / penalties
