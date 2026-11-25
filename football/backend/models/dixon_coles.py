@@ -31,6 +31,8 @@ class DCParams:
     window_days: int = 730  # 이보다 오래된 경기는 쓰지 않음
     l2: float = 0.5  # 정규화 세기 (가중치 합 대비가 아니라 절대값)
     rho_bounds: tuple[float, float] = (-0.25, 0.25)
+    target: str = "goals"  # "goals" 또는 "xg": 공격·수비력을 실제 골 대신 xG로 추정 (xG 있는 경기만 사용)
+    min_matches: int = 20
 
 
 def tau(x, y, lam, mu, rho):
@@ -59,18 +61,23 @@ class DixonColes:
         as_of = pd.Timestamp(as_of)
         m = matches[(matches["status"] == "finished") & matches["hg"].notna() & (matches["kickoff_utc"] < as_of)]
         m = m[m["decided_by"].isna() | (m["decided_by"] == "regular")]  # 연장 득점이 섞인 경기는 제외
+        if self.p.target == "xg":
+            m = m[m["h_xg"].notna() & m["a_xg"].notna()]
         age = (as_of - m["kickoff_utc"]).dt.total_seconds() / 86400
         m = m[age <= self.p.window_days]
         age = age[age <= self.p.window_days]
-        if len(m) < 20:
+        if len(m) < self.p.min_matches:
             raise ValueError(f"학습 경기가 너무 적음 ({len(m)}경기)")
         teams = pd.unique(pd.concat([m["home_id"], m["away_id"]]))
         self.teams = {int(t): i for i, t in enumerate(teams)}
         n = len(teams)
         hi = m["home_id"].map(self.teams).to_numpy()
         ai = m["away_id"].map(self.teams).to_numpy()
-        x = m["hg"].to_numpy(float)
-        y = m["ag"].to_numpy(float)
+        goals_x = m["hg"].to_numpy(float)
+        goals_y = m["ag"].to_numpy(float)
+        # 1단계(공격·수비 추정)의 목표값: 골 또는 xG. xG는 정수가 아니지만 포아송 우도 식은 그대로 쓸 수 있다(준우도).
+        x = m["h_xg"].to_numpy(float) if self.p.target == "xg" else goals_x
+        y = m["a_xg"].to_numpy(float) if self.p.target == "xg" else goals_y
         neutral = m["neutral"].fillna(False).to_numpy(bool) if "neutral" in m else np.zeros(len(m), bool)
         hflag = (~neutral).astype(float)
         w = np.exp(-self.p.xi * age.to_numpy())
@@ -95,8 +102,8 @@ class DixonColes:
         lam = np.exp(self.home * hflag + self.attack[hi] + self.defence[ai])
         mu = np.exp(self.attack[ai] + self.defence[hi])
 
-        def rho_nll(rho):
-            t = tau(x, y, lam, mu, rho)
+        def rho_nll(rho):  # 저득점 보정은 항상 실제 골로 맞춘다
+            t = tau(goals_x, goals_y, lam, mu, rho)
             return -np.sum(w * np.log(np.clip(t, 1e-10, None)))
 
         lo, hi_b = self.p.rho_bounds

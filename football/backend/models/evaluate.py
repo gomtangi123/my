@@ -26,14 +26,18 @@ from backend.config import FOOTBALL_ROOT, load_leagues
 from backend.db.init_db import make_engine, make_session_factory
 from backend.db.schema import MatchOdds, Prediction
 from backend.features.data import load_matches
-from backend.models.dixon_coles import DixonColes, summarize_matrix
+from backend.models.dixon_coles import DCParams, DixonColes, summarize_matrix
 from backend.models.elo import EloParams, OrderedLogit, run_elo
+from backend.models.ml_model import build_frame, train_final, walk_forward
+from backend.models.selection import MIN_GAIN, MIN_MATCHES, save_selection, select_models
 
 REPORT = Path(__file__).resolve().parent / "REPORT.md"
+XG_MIN_MATCHES = 60  # xG 모델은 학습 경기가 이보다 적으면 그 주 예측을 건너뛴다
+LGBM_WARMUP_DAYS = 300  # Dixon-Coles 검증 예측이 이만큼 쌓인 뒤부터 LightGBM 평가 (그 전 기간은 학습용)
 CALIB_PNG = Path(__file__).resolve().parent / "calibration.png"
 PRED_CSV = FOOTBALL_ROOT / "data" / "eval" / "predictions.csv"
 OUTCOMES = np.array(["H", "D", "A"])
-MODEL_NAMES = {"dixon_coles": "Dixon-Coles", "elo": "Elo", "league_avg": "리그 평균", "home_always": "홈팀 항상 승",
+MODEL_NAMES = {"dixon_coles": "Dixon-Coles", "dixon_coles_xg": "xG Dixon-Coles", "lightgbm": "LightGBM", "elo": "Elo", "league_avg": "리그 평균", "home_always": "홈팀 항상 승",
                "odds": "배당 내재 확률"}
 
 
@@ -113,20 +117,24 @@ def predict_elo(df: pd.DataFrame, elo: pd.DataFrame, leagues: dict, tests: dict[
     return pd.concat(out) if out else pd.DataFrame()
 
 
-def predict_dc(df: pd.DataFrame, leagues: dict, tests: dict[str, list[str]], log=print) -> pd.DataFrame:
+def predict_dc(df: pd.DataFrame, leagues: dict, tests: dict[str, list[str]], log=print,
+               params: DCParams | None = None, model_name: str = "dixon_coles") -> pd.DataFrame:
+    params = params or DCParams()
     out = []
     for lk, seasons in tests.items():
         if leagues[lk].type != "league":
             continue  # 리그 간 경기(ACL)는 리그별 공격·수비력을 비교할 수 없어 Dixon-Coles 대상에서 제외
         lg = df[df["league_key"] == lk]
         test = lg[lg["season_label"].isin(seasons) & lg["result_90"].isin(OUTCOMES)]
+        if params.target == "xg":
+            test = test[test["h_xg"].notna()]  # xG 모델은 xG가 있는 경기만 평가
         if test.empty:
             continue
         weeks = test["kickoff_utc"].dt.tz_convert("UTC").dt.floor("D") - pd.to_timedelta(
             test["kickoff_utc"].dt.day_of_week, unit="D")
         n_fit = 0
         for week_start, block in test.groupby(weeks):
-            model = DixonColes()
+            model = DixonColes(params)
             try:
                 model.fit(lg, as_of=week_start)  # 그 주 시작 전까지 끝난 경기만
             except ValueError:
@@ -136,8 +144,8 @@ def predict_dc(df: pd.DataFrame, leagues: dict, tests: dict[str, list[str]], log
             for _, r in block.iterrows():
                 s = summarize_matrix(model.score_matrix(r["home_id"], r["away_id"], bool(r["neutral"])))
                 rows.append((r["match_id"], s["home_win"], s["draw"], s["away_win"], s["over_2_5"], s["btts"]))
-            out.append(pd.DataFrame(rows, columns=["match_id", "pH", "pD", "pA", "p_over25", "p_btts"]).assign(model="dixon_coles"))
-        log(f"  Dixon-Coles {leagues[lk].name_ko}: {n_fit}번 학습, {len(test)}경기 예측")
+            out.append(pd.DataFrame(rows, columns=["match_id", "pH", "pD", "pA", "p_over25", "p_btts"]).assign(model=model_name))
+        log(f"  {MODEL_NAMES[model_name]} {leagues[lk].name_ko}: {n_fit}번 학습, 평가 대상 {len(test)}경기")
     return pd.concat(out) if out else pd.DataFrame()
 
 
@@ -320,12 +328,48 @@ def build_report(preds: pd.DataFrame, df: pd.DataFrame, leagues: dict, tests: di
     return "\n".join(lines)
 
 
+def advanced_section(preds: pd.DataFrame, df: pd.DataFrame, leagues: dict, sel: dict) -> str:
+    p = preds.merge(df[["match_id", "league_key", "result_90"]], on="match_id")
+    p = p[p["result_90"].isin(OUTCOMES)]
+    lines = ["", "## 8단계: 고급 모델 비교", ""]
+
+    def compare(models, title, note):
+        ids = None
+        for m in models:
+            s_ = set(p.loc[p["model"] == m, "match_id"])
+            ids = s_ if ids is None else ids & s_
+        if not ids:
+            return [f"### {title}", "", "비교할 경기가 없음", ""]
+        sub = p[p["match_id"].isin(ids)]
+        rows = sorted(({"모델": MODEL_NAMES[m], **metrics_row(sub[sub["model"] == m])} for m in models),
+                      key=lambda r: r["Log loss"])
+        return [f"### {title}", "", note, "", fmt_table(rows, ["모델", "경기 수", "Log loss", "Brier", "정확도"]), ""]
+
+    lines += compare(["lightgbm", "dixon_coles", "elo"], "LightGBM (전체 리그, 같은 경기로 비교)",
+                     "피처: 폼·득실·휴식일·H2H·xG/슈팅(있을 때)·Elo·Dixon-Coles 확률·대회. 매달 1일 그 전까지 끝난 경기로 다시 학습.")
+    xg_n = int((p["model"] == "dixon_coles_xg").sum())
+    lines += compare(["dixon_coles_xg", "dixon_coles"], "xG Dixon-Coles (xG 있는 리그, 같은 경기로 비교)",
+                     f"⚠️ **데이터 부족 — 참고용**: xG는 2026/27 시즌부터만 있어 {xg_n}경기만 평가했고, 학습 데이터도 시즌 초반 몇 달뿐이다. "
+                     "시즌이 진행되며 매주 재검증한다.")
+    rows = []
+    for lk, v in sorted(sel.items(), key=lambda kv: leagues[kv[0]].name_ko):
+        best = v["comparisons"].get(v["main"], {}) if v["main"] != v["default"] else {}
+        rows.append({"대회": leagues[lk].name_ko, "대표 모델": MODEL_NAMES[v["main"]], "기본": MODEL_NAMES[v["default"]],
+                     "개선": f"{best['gain']:.4f}" if best else "-", "이유": v["reason"]})
+    lines += ["### 사이트에 반영하는 대표 모델", "",
+              f"기본 모델보다 같은 경기에서 Log loss가 {MIN_GAIN} 이상 낮고 비교 경기가 {MIN_MATCHES}개 이상인 모델만 대표로 바꾼다.", "",
+              fmt_table(rows, ["대회", "대표 모델", "기본", "개선", "이유"]), "",
+              "⚠️ 모델 선택과 이 성능표에 같은 검증 기간을 썼으므로, 선택된 모델의 개선 폭은 실제보다 조금 좋게 보일 수 있다 "
+              "(여러 후보 중 가장 좋은 것을 고른 효과). 매주 새로 쌓이는 경기로 다시 검증·선택한다.", ""]
+    return "\n".join(lines)
+
+
 def save_backtest(session, preds: pd.DataFrame) -> None:
     """walk-forward 예측을 predictions 테이블(kind='backtest')에 저장 — 모델 성능 페이지용. 매번 통째로 바꾼다."""
     session.execute(delete(Prediction).where(Prediction.kind == "backtest"))
     made = datetime.now(timezone.utc)
     rows = []
-    for r in preds[preds["model"].isin(["dixon_coles", "elo"])].itertuples(index=False):
+    for r in preds[preds["model"].isin(["dixon_coles", "elo", "lightgbm", "dixon_coles_xg"])].itertuples(index=False):
         rows.append({"match_id": int(r.match_id), "model": r.model, "kind": "backtest", "p_home": float(r.pH),
                      "p_draw": float(r.pD), "p_away": float(r.pA),
                      "p_over_2_5": None if pd.isna(getattr(r, "p_over25", None)) else float(r.p_over25),
@@ -351,13 +395,31 @@ def main(argv=None) -> int:
         parts.append(predict_dc(df, leagues, tests))
         parts.append(predict_baselines(df, tests))
         preds = pd.concat([p for p in parts if not p.empty], ignore_index=True)
+        # ── 8단계: xG Dixon-Coles (xG 있는 시즌만) ──
+        print("xG Dixon-Coles walk-forward 학습·예측 중...")
+        xg_tests = {k: [v[-1]] for k, v in tests.items() if df.loc[df["league_key"] == k, "h_xg"].notna().any()}
+        preds = pd.concat([preds, predict_dc(df, leagues, xg_tests, params=DCParams(target="xg", min_matches=XG_MIN_MATCHES),
+                                             model_name="dixon_coles_xg")], ignore_index=True)
+        # ── 8단계: LightGBM (Elo·Dixon-Coles 확률·폼·휴식일 등) ──
+        print("LightGBM walk-forward 학습·예측 중...")
+        types = {k: l.type for k, l in leagues.items() if l.enabled}
+        frame = build_frame(df, elo, preds[preds["model"] == "dixon_coles"], types)
+        dc_start = df.loc[df["match_id"].isin(preds.loc[preds["model"] == "dixon_coles", "match_id"]), "kickoff_utc"].min()
+        lgbm_preds, iters = walk_forward(frame, dc_start + pd.Timedelta(days=LGBM_WARMUP_DAYS), log_fn=print)
+        preds = pd.concat([preds, lgbm_preds.assign(model="lightgbm")], ignore_index=True)
+        if iters:
+            train_final(frame, int(np.median(iters)))  # 사이트용 최종 모델 저장
+        # ── 대회별 대표 모델 선택 ──
+        sel = select_models(preds.merge(df[["match_id", "league_key", "result_90"]], on="match_id"), types)
+        save_selection(sel)
         preds = pd.concat([preds, predict_odds(session, preds["match_id"].unique())], ignore_index=True)
         save_backtest(session, preds)
     PRED_CSV.parent.mkdir(parents=True, exist_ok=True)
     preds.to_csv(PRED_CSV, index=False)
     merged = preds.merge(df[["match_id", "result_90"]], on="match_id")
     plot_calibration(merged[merged["match_id"].isin(set(preds.loc[preds["model"] == "dixon_coles", "match_id"]))], CALIB_PNG)
-    REPORT.write_text(build_report(preds, df, leagues, tests, datetime.now(timezone.utc)), encoding="utf-8")
+    REPORT.write_text(build_report(preds, df, leagues, tests, datetime.now(timezone.utc))
+                      + advanced_section(preds, df, leagues, sel), encoding="utf-8")
     print(f"보고서 생성: {REPORT}")
     return 0
 

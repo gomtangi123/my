@@ -27,8 +27,18 @@ from backend.models.dixon_coles import MAX_GOALS, summarize_matrix, tau
 from backend.models.evaluate import OUTCOMES, accuracy, brier, calibration_table, log_loss
 
 WDL_KO = str.maketrans({"W": "승", "D": "무", "L": "패"})
-MODEL_KO = {"dixon_coles": "Dixon-Coles", "elo": "Elo"}
+MODEL_KO = {"dixon_coles": "Dixon-Coles", "dixon_coles_xg": "xG Dixon-Coles", "lightgbm": "LightGBM", "elo": "Elo"}
 HEATMAP_GOALS = 6
+MODEL_EXPLANATIONS = {
+    "dixon_coles": ("대표 예측은 Dixon-Coles 모델입니다. 최근 2년간 리그 경기 결과로 팀별 공격력·수비력과 홈 어드밴티지를 추정하고 "
+                    "(최근 경기일수록 가중치 큼), 두 팀의 예상 득점으로 0~10골 스코어 확률을 계산합니다. 저득점 경기(0-0, 1-0 등) "
+                    "보정이 들어갑니다."),
+    "dixon_coles_xg": ("대표 예측은 xG Dixon-Coles 모델입니다. 실제 골 대신 기대 득점(xG)으로 팀별 공격력·수비력을 추정해 "
+                       "운의 영향을 줄이고, 그 값으로 0~10골 스코어 확률을 계산합니다."),
+    "lightgbm": ("대표 예측은 LightGBM 모델입니다. Elo 레이팅, Dixon-Coles 확률, 최근 폼, 휴식일, 상대 전적 같은 경기 전 정보를 "
+                 "함께 학습한 머신러닝 모델로, 검증에서 이 대회 기본 모델보다 확실히 더 나은 경우에만 대표로 씁니다."),
+    "elo": "대표 예측은 Elo 모델입니다. 모든 대회 결과로 갱신되는 팀 레이팅 차이로 승무패 확률을 구합니다. 스코어·오버/언더 확률은 제공하지 않습니다.",
+}
 
 
 def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
@@ -69,9 +79,12 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
         return c.pred_by_match.get(int(match_id), [])
 
     def choose_main(c: DataCache, r) -> dict | None:
-        """대표 예측: 경기 전 live 예측 우선, 없으면 검증(backtest) 예측. 리그는 Dixon-Coles, 컵은 Elo."""
+        """대표 예측: 경기 전 live 예측 우선, 없으면 검증(backtest) 예측.
+        모델은 8단계 선택 결과(data/models/selection.json)를 먼저, 없으면 리그는 Dixon-Coles, 컵은 Elo."""
         ps = preds_for(c, r["match_id"])
-        order = ["dixon_coles", "elo"] if leagues_cfg[r["league_key"]].type == "league" else ["elo"]
+        default = ["dixon_coles", "elo"] if leagues_cfg[r["league_key"]].type == "league" else ["elo"]
+        chosen = c.selection.get(r["league_key"])
+        order = ([chosen] if chosen else []) + [m for m in default if m != chosen]
         for kind in ("live", "backtest"):
             for model in order:
                 for p in ps:
@@ -192,8 +205,12 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
             same_kind = [p for p in ps if p["kind"] == main["kind"]]
             others = [prob_out(p) for p in same_kind if p["model"] != main["model"]]
             matrix = ml = eg = None
-            if main["model"] == "dixon_coles" and pd.notna(main.get("exp_home_goals")):
-                lam, mu, rho = float(main["exp_home_goals"]), float(main["exp_away_goals"]), float(main["rho"])
+            # 히트맵은 스코어 행렬을 가진 모델(대표 모델이 아니면 Dixon-Coles)로 그린다
+            score_src = main if main["model"].startswith("dixon_coles") else next(
+                (p for p in same_kind if p["model"] == "dixon_coles"), None)
+            if score_src is not None and pd.notna(score_src.get("exp_home_goals")):
+                lam, mu, rho = (float(score_src["exp_home_goals"]), float(score_src["exp_away_goals"]),
+                                float(score_src["rho"]))
                 g = np.arange(MAX_GOALS + 1)
                 from scipy.stats import poisson
                 mat = np.outer(poisson.pmf(g, lam), poisson.pmf(g, mu))
@@ -205,7 +222,11 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
                 ml = {"home": s["most_likely_score"][0], "away": s["most_likely_score"][1],
                       "probability": round(s["most_likely_prob"], 4)}
                 eg = {"home": round(lam, 3), "away": round(mu, 3)}
-            pred = S.PredictionDetail(main=prob_out(main), others=others, expected_goals=eg, most_likely_score=ml,
+            main_out = prob_out(main)
+            if main_out.over_2_5 is None and score_src is not None:  # LightGBM 등은 득점 확률이 없어 Dixon-Coles 값을 쓴다
+                main_out.over_2_5 = prob_out(score_src).over_2_5
+                main_out.btts = prob_out(score_src).btts
+            pred = S.PredictionDetail(main=main_out, others=others, expected_goals=eg, most_likely_score=ml,
                                       score_matrix=matrix, made_at_kst=to_kst(main["made_at"]),
                                       pre_match=bool(pd.Timestamp(main["made_at"]) < ko))
         elo = {p["model"]: p for p in ps}.get("elo") or {}
@@ -229,13 +250,12 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
                            matches=[{"match_id": int(x["match_id"]), "kickoff_kst": to_kst(x["kickoff_utc"]),
                                      "home_team_was_home": bool(x["is_home"]), "home_team_goals": int(x["gf"]),
                                      "away_team_goals": int(x["ga"])} for x in reversed(h2h["matches"])])
-        if lg.type == "league":
-            expl = ("대표 예측은 Dixon-Coles 모델입니다. 최근 2년간 리그 경기 결과로 팀별 공격력·수비력과 홈 어드밴티지를 추정하고 "
-                    "(최근 경기일수록 가중치 큼), 두 팀의 예상 득점으로 0~10골 스코어 확률을 계산합니다. 저득점 경기(0-0, 1-0 등) "
-                    "보정이 들어갑니다. 함께 표시하는 Elo는 모든 대회 결과로 갱신되는 팀 레이팅 차이로 승무패 확률을 구합니다.")
-        else:
-            expl = ("컵 대회(서로 다른 리그 팀끼리 경기)라서 리그별 공격·수비력을 비교할 수 없어, 모든 대회 결과로 갱신되는 "
-                    "Elo 레이팅 차이로 승무패 확률을 구합니다. 스코어·오버/언더 확률은 제공하지 않습니다.")
+        main_model = main["model"] if main else ("dixon_coles" if lg.type == "league" else "elo")
+        expl = MODEL_EXPLANATIONS[main_model]
+        if lg.type != "league":
+            expl = "컵 대회(서로 다른 리그 팀끼리 경기)라서 리그별 공격·수비력을 비교할 수 없습니다. " + expl
+        if main_model == "lightgbm":
+            expl += " 득점(2.5골·양팀 득점) 확률과 스코어 히트맵은 Dixon-Coles 모델 값입니다."
         return S.MatchDetailOut(match=match_item(c, r), venue=None, neutral_venue=bool(r["neutral"]), prediction=pred,
                                 comparison={"home": side(r["home_id"], True), "away": side(r["away_id"], False)},
                                 head_to_head=h2h_out, model_explanation=expl, disclaimer=DISCLAIMER)
@@ -309,12 +329,18 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
         res = df[["match_id", "league_key", "result_90", "kickoff_utc", "home_id", "away_id", "hg", "ag"]]
         bt = p[p["kind"] == "backtest"].merge(res, on="match_id")
         bt = bt[bt["result_90"].isin(OUTCOMES)]
-        common = set(bt.loc[bt["model"] == "dixon_coles", "match_id"]) & set(bt.loc[bt["model"] == "elo", "match_id"])
+        compared = ("dixon_coles", "elo", "lightgbm")  # xG 모델은 표본이 작아 REPORT.md 에만 (참고용)
+
+        def common_ids(sub):
+            """그 범위에서 예측이 있는 모델들이 '모두' 예측한 경기 — 같은 경기로 공정하게 비교"""
+            sets = [set(sub.loc[sub["model"] == m, "match_id"]) for m in compared if (sub["model"] == m).any()]
+            return set.intersection(*sets) if sets else set()
 
         def rows(sub):
+            ids = common_ids(sub)
             out = []
-            for model in ("dixon_coles", "elo"):
-                s_ = sub[sub["model"] == model]
+            for model in compared:
+                s_ = sub[(sub["model"] == model) & sub["match_id"].isin(ids)]
                 if s_.empty:
                     continue
                 pr, y = s_[["p_home", "p_draw", "p_away"]].to_numpy(float), s_["result_90"].to_numpy()
@@ -322,11 +348,14 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
                                             brier=round(brier(pr, y), 4), accuracy=round(accuracy(pr, y), 4)))
             return out
 
-        overall = rows(bt[bt["match_id"].isin(common)])
+        overall = rows(bt)
         by_league = {leagues_cfg[k].name_ko: rows(g) for k, g in bt.groupby("league_key") if k in leagues_cfg}
+        common = common_ids(bt)
         calib = {}
-        for model in ("dixon_coles", "elo"):
+        for model in compared:
             s_ = bt[(bt["model"] == model) & bt["match_id"].isin(common)]
+            if s_.empty:
+                continue
             t = calibration_table(s_[["p_home", "p_draw", "p_away"]].to_numpy(float), s_["result_90"].to_numpy())
             calib[MODEL_KO[model]] = [{"bin": x["구간"], "predicted": round(x["예측 평균"], 4),
                                        "observed": round(x["실제 비율"], 4), "count": x["건수"]} for x in t.to_dict("records")]
@@ -346,8 +375,12 @@ def create_app(session_factory: sessionmaker | None = None) -> FastAPI:
                 break
         notes = ["backtest: 각 경기 이전 데이터로만 학습한 모델로 다시 계산한 예측 (walk-forward 검증)",
                  "live: 실제로 경기 시작 전에 만들어 저장한 예측 — 경기 시작 후에는 고치지 않음",
-                 "Log loss·Brier는 낮을수록 좋음. 정답은 90분 결과 (연장·승부차기 경기는 무승부)"]
-        return S.ModelPerformanceOut(overall=overall, by_league=by_league, calibration=calib, recent=recent, notes=notes)
+                 "Log loss·Brier는 낮을수록 좋음. 정답은 90분 결과 (연장·승부차기 경기는 무승부)",
+                 "표는 비교하는 모델이 모두 예측한 같은 경기만으로 계산 (LightGBM은 학습 기간이 필요해 평가 기간이 더 짧음)",
+                 "대표 모델: 검증에서 기본 모델보다 Log loss가 0.003 이상 낮고 비교 경기가 200개 이상일 때만 바꿈"]
+        selection = {leagues_cfg[k].name_ko: MODEL_KO[v] for k, v in c.selection.items() if k in leagues_cfg}
+        return S.ModelPerformanceOut(overall=overall, by_league=by_league, calibration=calib, recent=recent, notes=notes,
+                                     selection=selection)
 
     @app.get("/api/health", summary="상태 (데이터 수, 자동 작업 결과)", tags=["운영"])
     def health():

@@ -138,3 +138,23 @@ def test_metrics():
     assert log_loss(uniform, y) == pytest.approx(np.log(3)) and brier(uniform, y) == pytest.approx(2 / 3)
     t = calibration_table(uniform, y, bins=10)
     assert len(t) == 1 and t.iloc[0]["실제 비율"] == pytest.approx(1 / 3) and t.iloc[0]["건수"] == 9
+
+
+def test_dc_xg_target_uses_xg_and_requires_xg_rows():
+    from backend.models.dixon_coles import DCParams
+    df, att, _ = simulate(seed=7)
+    rng = np.random.default_rng(1)
+    # xG = 실제 기대 득점에 가까운 값 (골보다 잡음이 적다)
+    for i, r in df.iterrows():
+        h, a = r["home_id"] - 1, r["away_id"] - 1
+        df.loc[i, "h_xg"] = float(np.exp(0.3 + att[h]) * rng.uniform(0.9, 1.1))
+        df.loc[i, "a_xg"] = float(np.exp(att[a]) * rng.uniform(0.9, 1.1))
+    end = df["kickoff_utc"].max() + timedelta(days=1)
+    xg = DixonColes(DCParams(target="xg")).fit(df, as_of=end)
+    goals = DixonColes().fit(df, as_of=end)
+    est = lambda m: np.array([m.team_params(t + 1)[0] for t in range(len(att))])  # noqa: E731
+    # xG로 학습하면 같은 데이터에서 공격력을 더 정확히 찾는다 (골은 운이 섞임)
+    assert np.corrcoef(att, est(xg))[0, 1] > np.corrcoef(att, est(goals))[0, 1]
+    no_xg = df.assign(h_xg=np.nan, a_xg=np.nan)
+    with pytest.raises(ValueError):
+        DixonColes(DCParams(target="xg")).fit(no_xg, as_of=end)

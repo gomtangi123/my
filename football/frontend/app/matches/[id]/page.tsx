@@ -10,7 +10,12 @@ import { kst, num, pct, teamName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-const MODEL_KO: Record<string, string> = { dixon_coles: "Dixon-Coles", elo: "Elo" };
+const MODEL_KO: Record<string, string> = {
+  dixon_coles: "Dixon-Coles",
+  dixon_coles_xg: "xG Dixon-Coles",
+  lightgbm: "LightGBM",
+  elo: "Elo",
+};
 
 type Row = { label: string; get: (s: ComparisonSide) => number | null | undefined; fmt: (v: number | null | undefined) => string; higherBetter?: boolean };
 

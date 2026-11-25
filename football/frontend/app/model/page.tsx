@@ -7,6 +7,8 @@ import { pct, teamName } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+const SHORT: Record<string, string> = { "Dixon-Coles": "DC", "xG Dixon-Coles": "xG DC", LightGBM: "LGBM", Elo: "Elo" };
+
 function PerfTable({ rows }: { rows: PerformanceRow[] }) {
   return (
     <table className="w-full text-sm">
@@ -59,34 +61,50 @@ export default async function ModelPage() {
       </Card>
 
       <Card title="대회별 Log loss (낮을수록 좋음)">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-slate-500">
-              <th className="py-1 text-left font-medium">대회</th>
-              <th className="py-1 text-right font-medium">경기</th>
-              <th className="py-1 text-right font-medium">Dixon-Coles</th>
-              <th className="py-1 text-right font-medium">Elo</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(p.by_league).map(([name, rows]) => {
-              const dc = rows.find((r) => r.model === "Dixon-Coles");
-              const elo = rows.find((r) => r.model === "Elo");
-              const best = Math.min(dc?.log_loss ?? Infinity, elo?.log_loss ?? Infinity);
-              const cell = (r?: PerformanceRow) =>
-                r ? <span className={r.log_loss === best ? "font-bold text-slate-900" : "text-slate-500"}>{r.log_loss.toFixed(3)}</span> : "-";
-              return (
-                <tr key={name} className="border-t border-slate-100 tabular-nums">
-                  <td className="py-1.5">{name}</td>
-                  <td className="py-1.5 text-right text-slate-500">{(dc ?? elo)?.matches.toLocaleString()}</td>
-                  <td className="py-1.5 text-right">{cell(dc)}</td>
-                  <td className="py-1.5 text-right">{cell(elo)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <p className="mt-2 text-[11px] text-slate-400">컵 대회(ACL)는 Elo만 적용합니다. 굵은 숫자가 그 대회에서 더 나은 모델입니다.</p>
+        <div className="-mx-4 overflow-x-auto px-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-500">
+                <th className="py-1 text-left font-medium">대회</th>
+                <th className="px-1 py-1 text-right font-medium">DC</th>
+                <th className="px-1 py-1 text-right font-medium">Elo</th>
+                <th className="px-1 py-1 text-right font-medium">LGBM</th>
+                <th className="py-1 pl-2 text-center font-medium">대표</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(p.by_league).map(([name, rows]) => {
+                const get = (m: string) => rows.find((r) => r.model === m);
+                const cands = ["Dixon-Coles", "Elo", "LightGBM"].map(get);
+                const best = Math.min(...cands.map((r) => r?.log_loss ?? Infinity));
+                const cell = (r?: PerformanceRow) =>
+                  r ? <span className={r.log_loss === best ? "font-bold text-slate-900" : "text-slate-500"}>{r.log_loss.toFixed(3)}</span> : "-";
+                return (
+                  <tr key={name} className="border-t border-slate-100 tabular-nums">
+                    <td className="py-1.5">
+                      {name}
+                      <span className="block text-[11px] text-slate-400">{(cands.find(Boolean)?.matches ?? 0).toLocaleString()}경기</span>
+                    </td>
+                    {cands.map((r, i) => (
+                      <td key={i} className="px-1 py-1.5 text-right text-xs sm:text-sm">
+                        {cell(r)}
+                      </td>
+                    ))}
+                    <td className="py-1.5 pl-2 text-center">
+                      <span className="rounded bg-blue-50 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700">
+                        {SHORT[p.selection?.[name] ?? ""] ?? "-"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-400">
+          DC = Dixon-Coles, LGBM = LightGBM, xG DC = xG Dixon-Coles. 대회마다 세 모델이 모두 예측한 같은 경기로 비교했고, 굵은 숫자가 가장 좋은 모델입니다.
+          대표 모델은 기본 모델(리그 Dixon-Coles, 컵 Elo)보다 Log loss가 0.003 이상 낮고 비교 경기가 200개 이상일 때만 바꿉니다.
+        </p>
       </Card>
 
       <Card title="최근 경기: 예측 vs 실제">

@@ -33,6 +33,13 @@ def raw(i, league, label, days, home, away, hg=None, ag=None, ext=None, stats=Fa
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
+    # 실제 data/models 의 LightGBM 모델·대표 모델 선택 파일을 읽지 않도록 임시 경로로 바꾼다 (테스트 격리)
+    from backend.models import ml_model, selection
+    iso = tmp_path_factory.mktemp("models")
+    mp = pytest.MonkeyPatch()
+    mp.setattr(ml_model, "MODEL_FILE", iso / "lgbm.txt")
+    mp.setattr(ml_model, "META_FILE", iso / "lgbm_meta.json")
+    mp.setattr(selection, "SELECTION_FILE", iso / "selection.json")
     db = tmp_path_factory.mktemp("api") / "test.db"
     engine = make_engine(f"sqlite:///{db}")
     Base.metadata.create_all(engine)
@@ -60,7 +67,8 @@ def client(tmp_path_factory):
     app = create_app(sf)
     c = TestClient(app)
     c.sf = sf
-    return c
+    yield c
+    mp.undo()
 
 
 def test_leagues(client):

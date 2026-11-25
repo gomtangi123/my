@@ -3,6 +3,23 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 8단계: 고급 모델 (xG Dixon-Coles, LightGBM)
+
+```bash
+cd football
+python -m backend.models.evaluate   # 모든 모델 walk-forward 검증 → REPORT.md, 대표 모델 선택, 사이트용 LightGBM 저장 (약 5분)
+```
+
+- **xG Dixon-Coles** (`dixon_coles.py`의 `DCParams(target="xg")`): 공격·수비력을 실제 골 대신 xG로 추정, 저득점 보정은 실제 골로.
+  xG가 2026/27 시즌부터만 있어 지금은 **참고용** (514경기 평가: Log loss 0.962 vs 골 기반 0.968). 리그별 200경기가 쌓이면 대표 후보가 된다.
+- **LightGBM** (`ml_model.py`): 폼·득실·휴식일·H2H·xG/슈팅·Elo·Dixon-Coles 확률·대회를 피처로, 매달 1일 그 전까지 끝난 경기로만 다시 학습.
+  같은 7,557경기 비교: LightGBM 1.0079 / Dixon-Coles 1.0099 / Elo 1.0107. 배당은 피처로 쓰지 않는다.
+- **대표 모델 선택** (`selection.py` → `data/models/selection.json`): 대회마다 세 모델이 모두 예측한 같은 경기로 비교해,
+  기본 모델(리그 Dixon-Coles, 컵 Elo)보다 Log loss가 0.003 이상 낮고 비교 경기가 200개 이상인 모델만 대표로 쓴다.
+  현재(2026-11-25): LightGBM 5개 리그, Elo 4개(J1·K리그1·챔피언십·ACL), Dixon-Coles 4개 리그.
+  선택과 성능표에 같은 검증 기간을 쓰므로 개선 폭은 실제보다 조금 좋게 보일 수 있다 → 매주 월요일 자동 재검증·재선택(7단계).
+- 대표 모델이 LightGBM·Elo여도 득점 확률(2.5골·양팀 득점)과 스코어 히트맵은 Dixon-Coles 값으로 보여준다.
+
 ## 7단계: 자동화
 
 ```bash

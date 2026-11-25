@@ -166,3 +166,4 @@ class ModelPerformanceOut(BaseModel):
     calibration: dict[str, list[dict]]
     recent: list[dict] = Field(description="최근 끝난 경기의 예측 vs 실제")
     notes: list[str]
+    selection: dict[str, str] = Field(default_factory=dict, description="대회별 사이트 대표 모델")

@@ -59,6 +59,7 @@ class DataCache:
         self.teams: dict[int, dict] = {}
         self.predictions = pd.DataFrame()
         self.pred_by_match: dict[int, list[dict]] = {}
+        self.selection: dict[str, str] = {}
 
     def get(self) -> "DataCache":
         with self._lock:
@@ -85,6 +86,9 @@ class DataCache:
             self.pred_by_match = {}
             for r in rows:  # 경기별로 바로 찾을 수 있게 색인
                 self.pred_by_match.setdefault(r["match_id"], []).append(dict(r))
+        from backend.models.selection import load_selection
+
+        self.selection = load_selection()  # 대회별 대표 모델 (8단계)
         self._loaded_at = time.monotonic()
 
     def team(self, team_id: int) -> dict:

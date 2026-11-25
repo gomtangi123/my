@@ -17,7 +17,7 @@ export type League = {
 };
 
 export type Probabilities = {
-  model: "dixon_coles" | "elo";
+  model: "dixon_coles" | "dixon_coles_xg" | "lightgbm" | "elo";
   home_win: number;
   draw: number;
   away_win: number;
@@ -161,6 +161,7 @@ export type ModelPerformance = {
   calibration: Record<string, { bin: string; predicted: number; observed: number; count: number }[]>;
   recent: { match: MatchItem; kind: "live" | "backtest"; predicted_pick: string; actual: string; hit: boolean }[];
   notes: string[];
+  selection: Record<string, string>;
 };
 
 export const api = {
