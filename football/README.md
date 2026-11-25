@@ -3,6 +3,20 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 1단계: 프로젝트 뼈대 + DB
+
+```bash
+cd football
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python -m backend.db.init_db      # data/football.db (SQLite) 생성 + leagues.yaml 대회 동기화
+python -m pytest -q backend/tests
+```
+
+- 테이블: leagues, seasons, teams, team_aliases, players, external_ids, matches, match_team_stats, match_odds, player_match_stats, injuries
+- 배포 때는 `DATABASE_URL` 환경변수로 PostgreSQL 지정 (9단계)
+- 시간은 UTC로만 저장된다(시간대 없는 값은 거부). 연장·승부차기 경기도 스코어는 90분 기준, `decided_by`에 결정 방식 기록.
+
 ## 0단계: 데이터 조사 (API-Football)
 
 ### 진행 상태
@@ -157,3 +171,26 @@ UOS-FootballDataAnalytics-Tutorial(서울시립대 수업 자료)에서 쓰는 �
 
 ### Understat
 - 2026-11-25 접속 시 "We will come back soon" 화면만 나옴 → 지금은 사용 불가. 과거 시즌 xG(4대 리그) 소스 후보로 남겨둔다.
+
+### TheSportsDB — K리그1·ACL 일정·결과 (무료 테스트 키)
+
+| 대회 | TheSportsDB ID | 확인 결과 |
+|---|---|---|
+| K리그1 | 4689 | 라운드별 조회(`eventsround.php?id=4689&r=1&s=2026`)로 라운드당 6경기 전부 받음. 2020 시즌 이전도 조회됨 |
+| AFC 챔피언스리그 엘리트 | 4719 | 시즌 표기 `2026-2027`. 예선(연장 AET 표시)·리그 스테이지 결과 받음 |
+
+- 주는 것: 일정, 킥오프 시간, 스코어, 경기 상태(FT/AET/NS), 라운드, 경기장. **슈팅 등 경기 통계·xG·선수 기록은 없음.**
+- 무료 키(`123`)는 한 번에 받는 개수가 제한됨(시즌 전체 조회는 15경기만, 다음 경기 조회는 1경기만) → 라운드별로 나눠 받는다.
+- 데이터는 사용자 참여형으로 만들어져 오류·지연이 있을 수 있음(검색 결과에서 상태값이 늦게 반영된 사례 확인). 수집 후 점검 로직을 둔다.
+- 무료 키는 테스트·소규모 개인 프로젝트용. 사이트를 공개 운영할 때는 유료 키(Patreon) 조건을 다시 확인한다.
+
+### 데이터 소스 결론 (현재 계획)
+
+| 대회 | 결과·일정 | 경기 통계 | xG | 선수·부상 |
+|---|---|---|---|---|
+| 유럽 10개 리그 | Football-Data.co.uk | Football-Data.co.uk | Football-Data.co.uk (2026/27~) | 없음 (API-Football 복구 시) |
+| J1리그 | Football-Data.co.uk | 없음 | 없음 | 없음 |
+| K리그1 | TheSportsDB | 없음 | 없음 | 없음 |
+| AFC 챔피언스리그 | TheSportsDB | 없음 | 없음 | 없음 |
+
+→ 아시아 대회는 **골 기반 모델(Elo, Dixon-Coles)** 로만 예측하고, 통계·xG 화면은 숨긴다.
