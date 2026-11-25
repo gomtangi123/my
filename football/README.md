@@ -3,6 +3,30 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 5단계: API (FastAPI)
+
+```bash
+cd football
+python -m backend.jobs.predict                      # 다가오는 14일 경기 예측 저장 (7단계에서 자동화)
+uvicorn backend.app.main:app --reload --port 8000   # API 서버
+```
+
+API 문서: http://localhost:8000/docs (모든 시간은 한국 시간 KST, `+09:00`)
+
+| 경로 | 내용 |
+|---|---|
+| `GET /api/leagues` | 리그 목록 (경기 통계·xG 제공 여부 포함 — 없으면 화면에서 숨김) |
+| `GET /api/leagues/{key}/standings?season=&venue=all\|home\|away` | 순위표 + 리그 평균 지표 (컵 대회는 400) |
+| `GET /api/matches?date=YYYY-MM-DD` 또는 `?from=&to=&league=&region=` | 경기 목록 (KST 날짜 기준, 기본 오늘부터 7일) + 대표 예측 |
+| `GET /api/matches/{id}` | 경기 상세: 승무패·오버/언더·양팀득점 확률, 스코어 확률 히트맵(0~6골), 기대 득점, 두 팀 비교(경기 시작 전 기준), H2H, 모델 설명, 고지문 |
+| `GET /api/teams/{id}` | 팀 상세: 순위, 폼, 홈/원정, 지표, 전·후반 득점, 최근·다가오는 경기 |
+| `GET /api/players/{id}` | 선수 상세 (무료 소스에 선수 데이터가 없어 현재 404) |
+| `GET /api/model-performance` | 모델 성능: 전체·리그별 지표, 보정 표, 최근 경기 예측 vs 실제 |
+
+- 예측은 `predictions` 테이블에 저장된다. `live` = 경기 전에 만든 실제 예측(경기 시작 후 수정 불가), `backtest` = walk-forward 검증 예측
+- 대표 예측: 리그 경기는 Dixon-Coles, 컵 대회(ACL)는 Elo
+- 경기 데이터는 메모리에 캐시하고 2분마다 다시 읽는다. 프론트 주소는 `FRONTEND_ORIGINS` 환경변수(기본 `http://localhost:3000`)
+
 ## 4단계: Elo + Dixon-Coles 모델
 
 ```bash

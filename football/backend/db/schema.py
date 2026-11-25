@@ -244,3 +244,29 @@ class Injury(Base):
     reported_at: Mapped[datetime] = mapped_column(UTCDateTime)
     expected_return: Mapped[date | None] = mapped_column(Date)
     source: Mapped[str] = mapped_column(String(32))
+
+
+class Prediction(Base):
+    """경기 예측. kind='live'는 경기 전에 만든 실제 예측, 'backtest'는 walk-forward 검증에서 만든 예측.
+
+    Dixon-Coles는 λ·μ·ρ를 저장해 두면 API가 스코어 확률 행렬(히트맵)을 다시 계산할 수 있다.
+    made_at 은 예측을 만든 시각 — 경기 시작 전이어야 '경기 전 예측'으로 인정한다 (모델 성능 페이지).
+    """
+
+    __tablename__ = "predictions"
+    __table_args__ = (UniqueConstraint("match_id", "model", "kind"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
+    model: Mapped[str] = mapped_column(String(32))  # dixon_coles / elo
+    kind: Mapped[str] = mapped_column(String(16), default="live")
+    p_home: Mapped[float] = mapped_column(Float)
+    p_draw: Mapped[float] = mapped_column(Float)
+    p_away: Mapped[float] = mapped_column(Float)
+    p_over_2_5: Mapped[float | None] = mapped_column(Float)
+    p_btts: Mapped[float | None] = mapped_column(Float)
+    exp_home_goals: Mapped[float | None] = mapped_column(Float)  # λ
+    exp_away_goals: Mapped[float | None] = mapped_column(Float)  # μ
+    rho: Mapped[float | None] = mapped_column(Float)
+    elo_home: Mapped[float | None] = mapped_column(Float)
+    elo_away: Mapped[float | None] = mapped_column(Float)
+    made_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)

@@ -1,6 +1,6 @@
 # 예측 모델 성능 비교 (자동 생성)
 
-_생성: 2026-11-25 11:31 UTC — `python -m backend.models.evaluate`_
+_생성: 2026-11-25 11:36 UTC — `python -m backend.models.evaluate`_
 
 ## 평가 방법
 

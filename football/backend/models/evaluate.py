@@ -20,11 +20,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sqlalchemy import select
+from sqlalchemy import delete, insert, select
 
 from backend.config import FOOTBALL_ROOT, load_leagues
 from backend.db.init_db import make_engine, make_session_factory
-from backend.db.schema import MatchOdds
+from backend.db.schema import MatchOdds, Prediction
 from backend.features.data import load_matches
 from backend.models.dixon_coles import DixonColes, summarize_matrix
 from backend.models.elo import EloParams, OrderedLogit, run_elo
@@ -320,6 +320,21 @@ def build_report(preds: pd.DataFrame, df: pd.DataFrame, leagues: dict, tests: di
     return "\n".join(lines)
 
 
+def save_backtest(session, preds: pd.DataFrame) -> None:
+    """walk-forward 예측을 predictions 테이블(kind='backtest')에 저장 — 모델 성능 페이지용. 매번 통째로 바꾼다."""
+    session.execute(delete(Prediction).where(Prediction.kind == "backtest"))
+    made = datetime.now(timezone.utc)
+    rows = []
+    for r in preds[preds["model"].isin(["dixon_coles", "elo"])].itertuples(index=False):
+        rows.append({"match_id": int(r.match_id), "model": r.model, "kind": "backtest", "p_home": float(r.pH),
+                     "p_draw": float(r.pD), "p_away": float(r.pA),
+                     "p_over_2_5": None if pd.isna(getattr(r, "p_over25", None)) else float(r.p_over25),
+                     "p_btts": None if pd.isna(getattr(r, "p_btts", None)) else float(r.p_btts), "made_at": made})
+    if rows:
+        session.execute(insert(Prediction), rows)
+    session.commit()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="walk-forward 검증 후 REPORT.md 생성")
     ap.add_argument("--test-seasons", type=int, default=3)
@@ -337,6 +352,7 @@ def main(argv=None) -> int:
         parts.append(predict_baselines(df, tests))
         preds = pd.concat([p for p in parts if not p.empty], ignore_index=True)
         preds = pd.concat([preds, predict_odds(session, preds["match_id"].unique())], ignore_index=True)
+        save_backtest(session, preds)
     PRED_CSV.parent.mkdir(parents=True, exist_ok=True)
     preds.to_csv(PRED_CSV, index=False)
     merged = preds.merge(df[["match_id", "result_90"]], on="match_id")
