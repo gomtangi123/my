@@ -11,3 +11,7 @@ venv/
 capcut-out/
 *.srt
 *.mp4
+
+# football 프로젝트
+football/data/
+football/.env
