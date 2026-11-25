@@ -15,9 +15,17 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 import requests
+import yaml
 
 FOOTBALL_ROOT = Path(__file__).resolve().parents[2]
 BASE_URL = "https://v3.football.api-sports.io"
+SETTINGS = FOOTBALL_ROOT / "config" / "settings.yaml"
+
+
+def load_settings(path: Path = SETTINGS) -> dict:
+    if not path.exists():
+        return {}
+    return (yaml.safe_load(path.read_text(encoding="utf-8")) or {}).get("api_football", {})
 
 
 class QuotaGuardError(RuntimeError):
@@ -55,9 +63,11 @@ class ApiFootballClient:
         self,
         api_key: str | None = None,
         data_dir: Path = FOOTBALL_ROOT / "data",
-        reserve: int = 5,
+        reserve: int | None = None,
+        daily_limit: int | None = None,
         session: requests.Session | None = None,
     ) -> None:
+        settings = load_settings()
         if api_key is None:
             load_dotenv()
             api_key = os.environ.get("API_FOOTBALL_KEY", "")
@@ -66,7 +76,9 @@ class ApiFootballClient:
         self.raw_dir = data_dir / "raw"
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = data_dir / "api_calls.log"
-        self.reserve = reserve
+        self.reserve = reserve if reserve is not None else int(settings.get("reserve", 5))
+        self.daily_limit = daily_limit if daily_limit is not None else int(settings.get("daily_limit", 100))
+        self.sleep_seconds = float(os.environ.get("API_FOOTBALL_SLEEP", settings.get("sleep_seconds", 6.5)))
         self.session = session or requests.Session()
         self.remaining: int | None = None
         self.limit: int | None = None
@@ -80,6 +92,9 @@ class ApiFootballClient:
 
         if self.remaining is not None and self.remaining <= self.reserve:
             raise QuotaGuardError(f"남은 호출 {self.remaining}회 — 여유분 {self.reserve}회 이하라 중단")
+        used = self.calls_today()
+        if used >= self.daily_limit - self.reserve:
+            raise QuotaGuardError(f"오늘(UTC) 이미 {used}회 호출 — 한도 {self.daily_limit}회, 여유분 {self.reserve}회라 중단")
 
         headers = {"x-apisports-key": self.api_key or "proxy-injected"}
         resp = self.session.get(f"{BASE_URL}/{endpoint.strip('/')}", params=params, headers=headers, timeout=30)
@@ -101,8 +116,16 @@ class ApiFootballClient:
 
         path.write_text(json.dumps(body, ensure_ascii=False, indent=1), encoding="utf-8")
         # 분당 제한(무료 요금제는 낮음)을 넘지 않도록 약간 쉰다
-        time.sleep(float(os.environ.get("API_FOOTBALL_SLEEP", "6.5")))
+        time.sleep(self.sleep_seconds)
         return body
+
+    def calls_today(self) -> int:
+        """호출 로그에서 오늘(UTC) 실제로 서버에 보낸 호출 수를 센다 (헤더가 없을 때도 한도를 지키기 위함)."""
+        if not self.log_path.exists():
+            return 0
+        today = datetime.now(timezone.utc).date().isoformat()
+        with self.log_path.open(encoding="utf-8") as f:
+            return sum(1 for line in f if line.startswith(today))
 
     def _log(self, endpoint: str, params: dict, status: int) -> None:
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")

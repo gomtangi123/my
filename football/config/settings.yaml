@@ -1,0 +1,7 @@
+# 데이터 소스 설정
+api_football:
+  plan: free            # free / pro / ultra / mega
+  daily_limit: 100      # 하루 호출 한도 (무료 요금제). 응답 헤더 값이 있으면 그쪽을 우선한다.
+  reserve: 5            # 이만큼 남으면 그날 호출을 멈춘다 (수동 확인용 여유분)
+  sleep_seconds: 6.5    # 호출 사이 대기 — 무료 요금제의 분당 제한 대비
+  reset_timezone: UTC   # 일일 한도 기준 날짜 (호출 로그를 이 기준으로 센다)

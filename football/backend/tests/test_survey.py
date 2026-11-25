@@ -132,3 +132,30 @@ def test_render_and_readme_section_replaced(tmp_path, monkeypatch):
     assert "옛날" not in text and "## 뒤" in text and text.count(sv.BEGIN) == 1
     assert "| 세리에 A | 135 | Serie A | 2 | 2023~2024 |" in text
     assert "**찾지 못함**" in text
+
+
+def test_client_stops_by_daily_log_count_without_headers(tmp_path):
+    """응답 헤더가 없어도 오늘 호출 로그 수로 무료 한도(100회)를 지킨다."""
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).date().isoformat()
+    (tmp_path / "api_calls.log").write_text("".join(f"{today}T00:00:00+00:00\t200\tx\t\tremaining=None\n" for _ in range(95)))
+    c = ApiFootballClient(api_key="k", data_dir=tmp_path, session=FakeSession([]), daily_limit=100, reserve=5)
+    with pytest.raises(QuotaGuardError):
+        c.get("leagues")
+
+
+def test_yesterdays_calls_do_not_count(tmp_path):
+    (tmp_path / "api_calls.log").write_text("".join("2000-01-01T00:00:00+00:00\t200\tx\t\t\n" for _ in range(500)))
+    sess = FakeSession([FakeResp({"errors": [], "response": []})])
+    c = ApiFootballClient(api_key="k", data_dir=tmp_path, session=sess, daily_limit=100, reserve=5)
+    c.get("leagues")
+    assert c.calls_today() == 1
+
+
+def test_batch_fetch_check(tmp_path):
+    body = {"errors": [], "response": [{"statistics": [1], "events": [1], "lineups": [], "players": [1]},
+                                       {"statistics": [1], "events": [], "lineups": [], "players": [1]}]}
+    c = ApiFootballClient(api_key="k", data_dir=tmp_path, session=FakeSession([FakeResp(body)]))
+    out = sv.check_batch_fetch(c, [1, 2])
+    assert out["returned"] == 2 and out["with_statistics"] == 1.0 and out["with_events"] == 0.5
+    assert "_ids-1-2.json" in "".join(p.name for p in (tmp_path / "raw").iterdir())

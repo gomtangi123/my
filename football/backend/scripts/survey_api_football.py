@@ -8,7 +8,7 @@ config/leagues.yaml 의 대회마다 API-Football 지원 여부, 시즌 수, 커
     python -m backend.scripts.survey_api_football --all      # 후보 대회까지
 
 예상 호출 수: /status 1 + /leagues 1 + 대회당 최대 2 (경기 목록 + 경기 통계 샘플)
-→ 기본 13개 대회 기준 약 28회. 무료 요금제(하루 100회)로도 충분하다.
++ 묶음 조회 확인 1 → 기본 13개 대회 기준 약 29회. 무료 요금제(하루 100회)로도 충분하다.
 캐시가 있으므로 다시 실행하면 호출하지 않는다.
 """
 from __future__ import annotations
@@ -99,7 +99,8 @@ def sample_fixture_stats(client: ApiFootballClient, league_id: int, season: dict
         ds = sorted(datetime.fromisoformat(f["fixture"]["date"]) for f in fx)
         span_days = max((ds[-1] - ds[0]).days, 1)
     out = {"season": season["year"], "fixtures": len(fx), "finished": len(finished), "span_days": span_days,
-           "sample_fixture": None, "stat_types": [], "xg": None}
+           "sample_fixture": None, "stat_types": [], "xg": None,
+           "finished_ids": [f["fixture"]["id"] for f in sorted(finished, key=lambda f: f["fixture"]["date"])][-20:]}
     if not finished:
         return out
     last = max(finished, key=lambda f: f["fixture"]["date"])
@@ -124,6 +125,18 @@ def sample_fixture_stats(client: ApiFootballClient, league_id: int, season: dict
     return out
 
 
+def check_batch_fetch(client: ApiFootballClient, ids: list[int]) -> dict:
+    """fixtures?ids= 로 여러 경기를 한 번에 받을 때 통계·이벤트·라인업·선수 기록이 함께 오는지 확인 (1회 호출)."""
+    resp = client.get("fixtures", {"ids": "-".join(map(str, ids))})["response"]
+
+    def share(field: str) -> float:
+        return sum(1 for f in resp if f.get(field)) / len(resp) if resp else 0.0
+
+    return {"requested": len(ids), "returned": len(resp),
+            "with_statistics": share("statistics"), "with_events": share("events"),
+            "with_lineups": share("lineups"), "with_players": share("players")}
+
+
 def yn(v) -> str:
     return {True: "O", False: "X", None: "?"}.get(v, str(v))
 
@@ -145,7 +158,7 @@ def estimate_daily_calls(results: list[dict]) -> tuple[int, int]:
     return round(low), round(high)
 
 
-def render(results: list[dict], status: dict | None, today: date) -> str:
+def render(results: list[dict], status: dict | None, today: date, batch: dict | None = None) -> str:
     lines = [BEGIN, "", f"_자동 생성: {today.isoformat()} — `python -m backend.scripts.survey_api_football`_", ""]
     if status:
         sub = status.get("subscription") or {}
@@ -183,6 +196,16 @@ def render(results: list[dict], status: dict | None, today: date) -> str:
         xg = yn(s.get("xg")) + (f" ({s['xg_value_example']})" if s.get("xg") else "")
         lines.append(f"| {r['name_ko']} | {s['season']} | {s['fixtures']} | {game} | {xg} | "
                      f"{', '.join(s['stat_types']) or '없음'} |")
+    lines += ["", "### 여러 경기 묶음 조회 (`fixtures?ids=`)", ""]
+    if batch is None:
+        lines.append("- 확인하지 못함 (종료 경기 샘플 없음 또는 호출 실패)")
+    else:
+        pct = lambda v: f"{v * 100:.0f}%"
+        ok = batch["returned"] == batch["requested"] and batch["with_statistics"] > 0.9
+        lines += [f"- 경기 {batch['requested']}개 요청 → {batch['returned']}개 응답 ({batch.get('league', '')})",
+                  f"- 함께 온 데이터: 통계 {pct(batch['with_statistics'])}, 이벤트 {pct(batch['with_events'])}, "
+                  f"라인업 {pct(batch['with_lineups'])}, 선수 기록 {pct(batch['with_players'])}",
+                  f"- 결론: {'묶음 조회 가능 — 과거 데이터는 경기 20개당 1회로 수집' if ok else '묶음 조회로 통계를 받을 수 없음 — 경기마다 따로 호출해야 함'}"]
     lo, hi = estimate_daily_calls(results)
     lines += ["", "### 매일 갱신 예상 호출 수", "",
               f"- 활성 대회 기준 하루 약 **{lo}~{hi}회** (경기 통계만 받으면 하한, 선수 기록·이벤트·라인업까지 받으면 상한)",
@@ -246,10 +269,19 @@ def main(argv: list[str] | None = None) -> int:
         print(f"- {c['name_ko']}: {'ID ' + str(r.get('id')) if found else '찾지 못함'}")
         results.append(r)
 
+    batch = None
+    sampled = [r for r in results if len((r.get("sample") or {}).get("finished_ids", [])) >= 2]
+    if sampled and not args.no_sample:
+        try:
+            batch = check_batch_fetch(client, sampled[0]["sample"]["finished_ids"])
+            batch["league"] = sampled[0]["name_ko"]
+        except (ApiError, QuotaGuardError) as e:
+            print(f"[경고] 묶음 조회 확인 실패: {e}", file=sys.stderr)
+
     SURVEY_JSON.parent.mkdir(parents=True, exist_ok=True)
-    SURVEY_JSON.write_text(json.dumps({"date": today.isoformat(), "status": status, "results": results},
+    SURVEY_JSON.write_text(json.dumps({"date": today.isoformat(), "status": status, "results": results, "batch": batch},
                                       ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-    write_readme(render(results, status, today))
+    write_readme(render(results, status, today, batch))
     print(f"이번 실행 실제 호출 {client.calls_made}회, 남은 일일 호출 {client.remaining}")
     print(f"README 갱신: {README}")
     return 0
