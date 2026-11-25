@@ -211,3 +211,24 @@ def test_http_cache_reuses_file_and_retries_429(tmp_path):
     assert 7.0 in slept and sess.n == 2
     assert http.get("https://x.test/a", "x/a.csv") == b"data" and sess.n == 2  # 캐시 사용
     assert (tmp_path / "http_calls.log").read_text().count("\n") == 2
+
+
+def test_http_cache_retries_connection_errors(tmp_path):
+    import requests
+
+    class Flaky:
+        headers = {}
+
+        def __init__(self):
+            self.n = 0
+
+        def get(self, url, timeout=None):
+            self.n += 1
+            if self.n == 1:
+                raise requests.ConnectionError("Connection reset by peer")
+            return Resp(200, b"ok")
+
+    slept, sess = [], Flaky()
+    http = HttpCache(data_dir=tmp_path, session=sess, sleep=slept.append, min_interval={"x.test": 0})
+    assert http.get("https://x.test/b", "x/b.csv") == b"ok" and sess.n == 2 and 10.0 in slept
+    assert "ConnectionError" in (tmp_path / "http_calls.log").read_text()

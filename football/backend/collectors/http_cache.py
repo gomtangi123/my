@@ -45,13 +45,22 @@ class HttpCache:
             wait = self.min_interval.get(host, 1.0) - (time.monotonic() - self._last_call.get(host, -1e9))
             if wait > 0:
                 self._sleep(wait)
-            resp = self.session.get(url, timeout=60)
+            try:
+                resp = self.session.get(url, timeout=60)
+            except (requests.ConnectionError, requests.Timeout) as e:
+                # 일시적인 네트워크 끊김 → 잠시 쉬고 다시 시도 (마지막 시도에서도 실패하면 그대로 오류)
+                self._last_call[host] = time.monotonic()
+                self._log(url, 0, 0, note=type(e).__name__)
+                if attempt > MAX_RETRIES:
+                    raise
+                self._sleep(10.0 * attempt)
+                continue
             self._last_call[host] = time.monotonic()
             self.calls += 1
             self._log(url, resp.status_code, len(resp.content))
-            if resp.status_code != 429 or attempt > MAX_RETRIES:
+            if resp.status_code not in (429, 502, 503, 504) or attempt > MAX_RETRIES:
                 break
-            # 호출 제한에 걸림 → 서버가 알려준 시간(없으면 점점 길게) 쉬고 다시 시도
+            # 호출 제한·일시적 서버 오류 → 서버가 알려준 시간(없으면 점점 길게) 쉬고 다시 시도
             retry_after = resp.headers.get("Retry-After", "")
             self._sleep(float(retry_after) if retry_after.isdigit() else 30.0 * attempt)
         if resp.status_code == 404:
@@ -64,8 +73,8 @@ class HttpCache:
         tmp.replace(path)  # 받다가 끊겨도 깨진 캐시가 남지 않게
         return resp.content
 
-    def _log(self, url: str, status: int, size: int) -> None:
+    def _log(self, url: str, status: int, size: int, note: str = "") -> None:
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with self.log_path.open("a", encoding="utf-8") as f:
-            f.write(f"{ts}\t{status}\t{size}\t{url}\n")
+            f.write(f"{ts}\t{status}\t{size}\t{url}" + (f"\t{note}" if note else "") + "\n")
