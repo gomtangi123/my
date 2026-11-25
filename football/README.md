@@ -3,6 +3,24 @@
 유럽 4대 리그·유럽 중소 리그·K리그1·J1리그·AFC 챔피언스리그를 대상으로 하는 축구 통계·예측 사이트.
 기획은 [CLAUDE.md](CLAUDE.md), 단계별 진행은 [단계별_프롬프트.md](단계별_프롬프트.md) 참고.
 
+## 6단계: 프론트엔드 (Next.js + Tailwind + Recharts)
+
+```bash
+# 1) 백엔드 API 실행 (football 폴더)
+uvicorn backend.app.main:app --port 8000
+# 2) 프론트 실행 (football/frontend 폴더)
+npm install
+npm run dev          # 개발: http://localhost:3000  (배포용: npm run build && npm start)
+```
+
+- 백엔드 주소는 `API_BASE` 환경변수 (기본 `http://localhost:8000`, `frontend/.env.example` 참고). 서버 컴포넌트에서 호출한다.
+- 모바일 우선, 한국어. 로고·선수 사진 대신 팀 컬러 원형 배지 + 약칭. 푸터에 데이터 출처.
+- 완성된 화면
+  - **홈** (`/`): 오늘·이번 주 경기(한국 시간), 날짜·대회별 묶음, 전체/유럽/아시아 탭, 경기마다 승/무/패 확률 막대
+  - **경기 상세** (`/matches/[id]`): 참고용 고지문, 승무패 확률(대표 모델 + 참고 모델), 2.5골 초과·양팀 득점·가장 가능성 높은 스코어·예상 득점,
+    스코어 확률 히트맵(0~6골), 두 팀 비교(경기 시작 전 기준, 없는 지표는 숨김), 상대 전적, 모델 설명
+- 남은 화면: 리그(순위표), 팀, 선수, 모델 성능
+
 ## 5단계: API (FastAPI)
 
 ```bash

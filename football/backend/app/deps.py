@@ -39,10 +39,12 @@ def badge_color(team_id: int, stored: str | None) -> str:
 def short_name(name: str, stored: str | None) -> str:
     if stored:
         return stored
-    words = [w for w in name.replace(".", " ").split() if w.upper() not in ("FC", "CF", "AFC", "SC", "FK", "SK", "CD", "AC")]
+    skip = {"FC", "CF", "AFC", "SC", "FK", "SK", "CD", "AC", "AL", "EL", "1.", "SV"}
+    cleaned = "".join(ch if ch.isalnum() else " " for ch in name)
+    words = [w for w in cleaned.split() if w.upper() not in skip and not w.isdigit()] or cleaned.split() or [name]
     if len(words) >= 2:
         return (words[0][0] + words[1][:2]).upper()
-    return (words[0] if words else name)[:3].upper()
+    return words[0][:3].upper()
 
 
 class DataCache:
