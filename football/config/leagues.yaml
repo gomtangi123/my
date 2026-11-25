@@ -1,0 +1,182 @@
+# 대상 대회 목록 — 리그 추가/삭제는 이 파일만 수정한다.
+#
+# api_football.match: API-Football /leagues 응답에서 대회를 찾는 기준 (국가명 + 대회명 후보).
+#   실제 리그 ID는 0단계 조사 스크립트(backend/scripts/survey_api_football.py)가 찾아서
+#   README와 data/survey/에 기록한다. 확인된 ID는 api_football.id 에 채워 넣는다.
+# priority: 호출 한도가 부족할 때 낮은 숫자부터 먼저 수집한다.
+# season_format: cross_year(8월~5월) / calendar_year(1월~12월). 최종 판단은 API 응답의 시작·종료일로 한다.
+
+leagues:
+  # ── 유럽 4대 리그 ──
+  - key: eng_premier_league
+    name_ko: 잉글랜드 프리미어리그
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/London
+    season_format: cross_year
+    priority: 1
+    api_football: {id: null, match: {country: England, names: ["Premier League"]}}
+
+  - key: esp_la_liga
+    name_ko: 스페인 라리가
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Madrid
+    season_format: cross_year
+    priority: 1
+    api_football: {id: null, match: {country: Spain, names: ["La Liga", "LaLiga", "Primera Division"]}}
+
+  - key: ger_bundesliga
+    name_ko: 독일 분데스리가
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Berlin
+    season_format: cross_year
+    priority: 1
+    api_football: {id: null, match: {country: Germany, names: ["Bundesliga", "1. Bundesliga"]}}
+
+  - key: ita_serie_a
+    name_ko: 이탈리아 세리에 A
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Rome
+    season_format: cross_year
+    priority: 1
+    api_football: {id: null, match: {country: Italy, names: ["Serie A"]}}
+
+  # ── 유럽 중소 리그 ──
+  - key: eng_championship
+    name_ko: 잉글랜드 챔피언십
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/London
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: England, names: ["Championship"]}}
+
+  - key: ned_eredivisie
+    name_ko: 네덜란드 에레디비시
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Amsterdam
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: Netherlands, names: ["Eredivisie"]}}
+
+  - key: por_primeira_liga
+    name_ko: 포르투갈 프리메이라리가
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Lisbon
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: Portugal, names: ["Primeira Liga", "Liga Portugal"]}}
+
+  - key: bel_pro_league
+    name_ko: 벨기에 프로리그
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Brussels
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: Belgium, names: ["Jupiler Pro League", "Pro League", "First Division A"]}}
+
+  - key: tur_super_lig
+    name_ko: 튀르키예 쉬페르리그
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/Istanbul
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: Turkey, names: ["Süper Lig", "Super Lig"]}}
+
+  - key: sco_premiership
+    name_ko: 스코틀랜드 프리미어십
+    enabled: true
+    type: league
+    region: europe
+    timezone: Europe/London
+    season_format: cross_year
+    priority: 2
+    api_football: {id: null, match: {country: Scotland, names: ["Premiership"]}}
+
+  # ── 아시아 ──
+  - key: kor_k_league_1
+    name_ko: K리그1
+    enabled: true
+    type: league
+    region: asia
+    timezone: Asia/Seoul
+    season_format: calendar_year
+    priority: 1
+    api_football: {id: null, match: {country: South-Korea, names: ["K League 1"]}}
+
+  - key: jpn_j1_league
+    name_ko: J1리그
+    enabled: true
+    type: league
+    region: asia
+    timezone: Asia/Tokyo
+    season_format: calendar_year   # 2026-27부터 cross_year로 전환 — 시즌별 날짜로 판단
+    priority: 1
+    api_football: {id: null, match: {country: Japan, names: ["J1 League"]}}
+
+  - key: afc_champions_league
+    name_ko: AFC 챔피언스리그 엘리트
+    enabled: true
+    type: cup
+    region: asia
+    timezone: Asia/Seoul
+    season_format: cross_year
+    priority: 1
+    api_football: {id: null, match: {country: World, names: ["AFC Champions League", "AFC Champions League Elite"]}}
+
+  # ── 추가 후보 (enabled: false) ──
+  - key: fra_ligue_1
+    name_ko: 프랑스 리그1
+    enabled: false
+    type: league
+    region: europe
+    timezone: Europe/Paris
+    season_format: cross_year
+    priority: 3
+    api_football: {id: null, match: {country: France, names: ["Ligue 1"]}}
+
+  - key: uefa_champions_league
+    name_ko: UEFA 챔피언스리그
+    enabled: false
+    type: cup
+    region: europe
+    timezone: Europe/Paris
+    season_format: cross_year
+    priority: 3
+    api_football: {id: null, match: {country: World, names: ["UEFA Champions League"]}}
+
+  - key: kor_k_league_2
+    name_ko: K리그2
+    enabled: false
+    type: league
+    region: asia
+    timezone: Asia/Seoul
+    season_format: calendar_year
+    priority: 3
+    api_football: {id: null, match: {country: South-Korea, names: ["K League 2"]}}
+
+  - key: jpn_j2_league
+    name_ko: J2리그
+    enabled: false
+    type: league
+    region: asia
+    timezone: Asia/Tokyo
+    season_format: calendar_year
+    priority: 3
+    api_football: {id: null, match: {country: Japan, names: ["J2 League"]}}
